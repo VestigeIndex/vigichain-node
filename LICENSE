@@ -1,0 +1,61 @@
+VigiChain Node — Binary Run-Only License
+Copyright (c) 2026 UTXO Labs. All rights reserved.
+
+This license governs use of the compiled VigiChain node binaries and the
+accompanying scripts, configuration and documentation distributed in this
+repository (together, the "Software"). The Software is proprietary. Source code
+is NOT licensed, NOT included, and NOT made available by this repository.
+
+1. GRANT (what you MAY do)
+   Subject to your full compliance with this license, UTXO Labs grants you a
+   personal, non-exclusive, non-transferable, revocable, royalty-free license to:
+   (a) download and run unmodified copies of the binaries solely to operate a node
+       on the VigiChain public TEST network; and
+   (b) run the binaries on machines you own or control, in any number, for that
+       purpose.
+
+2. RESTRICTIONS (what you may NOT do)
+   You may not, in whole or in part:
+   (a) reverse engineer, decompile, disassemble, deobfuscate, or otherwise attempt
+       to derive source code, algorithms, protocols, structure or internal design
+       of the Software, except to the exact extent this prohibition is
+       unwaivable under applicable law;
+   (b) modify, adapt, translate, or create derivative works of the Software;
+   (c) redistribute, sublicense, sell, rent, lease, lend, host for download, or
+       otherwise make the Software available to any third party;
+   (d) remove, alter or obscure any copyright, trademark or attribution notice;
+   (e) use the Software, or knowledge gained from it, to build, train or assist any
+       product, network, protocol or model that competes with or replicates
+       VigiChain or any UTXO Labs work; or
+   (f) use the Software to attack, disrupt, or degrade the VigiChain network or its
+       participants.
+
+3. RESERVATION OF RIGHTS
+   All right, title and interest in and to the Software, the VigiChain protocol,
+   its consensus, cryptography and design, and all associated intellectual property
+   and trademarks (including "VigiChain", "Vigi", "VigiWallet" and "UTXO Labs"),
+   are and remain the exclusive property of UTXO Labs. No rights are granted except
+   the limited run license in Section 1. Nothing herein transfers ownership.
+
+4. NETWORK / TESTNET NOTICE
+   The Software operates a TEST network. Test VIGI has no monetary value and confers
+   no right, claim, expectation or entitlement of any kind. Mainnet is disabled in
+   the Software by design.
+
+5. NO WARRANTY
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING WITHOUT LIMITATION THE WARRANTIES OF MERCHANTABILITY, FITNESS
+   FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
+
+6. LIMITATION OF LIABILITY
+   TO THE MAXIMUM EXTENT PERMITTED BY LAW, UTXO LABS SHALL NOT BE LIABLE FOR ANY
+   DIRECT, INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL OR EXEMPLARY DAMAGES ARISING
+   FROM OR RELATED TO THE SOFTWARE OR ITS USE.
+
+7. TERMINATION
+   This license terminates automatically and immediately if you breach any term.
+   Upon termination you must stop running and delete all copies of the Software.
+   Sections 2–6 survive termination.
+
+By downloading, copying or running the Software you agree to this license. If you
+do not agree, you have no license and must not use the Software.

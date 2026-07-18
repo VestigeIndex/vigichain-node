@@ -1,0 +1,12 @@
+# Binaries are published via GitHub Releases, never committed to the tree.
+release-assets/
+vigichain-node-linux-x86_64
+vigichain-node-windows-x86_64.exe
+vigichain-node-macos-*
+*.exe
+
+# Runtime state — never publish node identity or chain data.
+vigi-data/
+node_key.json
+*.log
+.env
