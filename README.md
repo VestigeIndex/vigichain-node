@@ -45,6 +45,23 @@ chmod +x vigichain-node-linux-x86_64
 Get-FileHash .\vigichain-node-windows-x86_64.exe -Algorithm SHA256
 ```
 
+### Verify the signature (recommended)
+
+A checksum alone does not prove *who* built the binary. Signed releases ship a
+`.sig` next to each binary; verify it against the published VigiChain release key
+with [minisign](https://jedisct1.github.io/minisign/):
+
+```bash
+# Public key (also on the VigiChain site). Save it as vigichain.pub:
+#   RWQ...    <-- the release public key
+minisign -Vm vigichain-node-linux-x86_64 -p vigichain.pub
+```
+
+A release is authentic only if `minisign` prints `Signature and comment signature
+verified`. Releases are additionally published with GitHub build-provenance
+attestation (verifiable with `gh attestation verify`), tying the binary to the
+exact source commit and CI build.
+
 ## Run a testnet node
 
 ```bash
