@@ -66,8 +66,18 @@ rsign verify -P RWQItT0J/YGNHI45GYmzWqVLUP+fMp5GXIbKxjp7eH/l7vZLfhv7KUsa \
   -x vigichain-node-linux-x86_64.sig vigichain-node-linux-x86_64
 ```
 
-A binary is authentic only if verification succeeds against that key. Testnet
-releases are single-signer; a second independent signer is added before mainnet.
+A binary is authentic only if verification succeeds against that key. VigiChain is
+**sovereign**: releases are signed by a single UTXO Labs key — but you never have to
+*trust* that signature. Integrity is meant to be **verified, not trusted**:
+
+- the release key is held **offline / in hardware**, so it cannot be stolen from a
+  build host or a compromised account;
+- builds are **reproducible** — rebuild from the audited source commit and confirm
+  the binary matches bit-for-bit;
+- each release carries **GitHub build-provenance** tying the binary to that exact
+  commit and CI run (`gh attestation verify`).
+
+Sole authority, zero required trust in a third party.
 
 ## Run a testnet node
 
