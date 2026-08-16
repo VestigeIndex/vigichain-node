@@ -107,9 +107,15 @@ A binary is authentic only if verification succeeds against that key. VigiChain 
   build host or a compromised account;
 - builds are **reproducible** — rebuild from the audited source commit and confirm
   the binary matches bit-for-bit;
-- CI-built releases also carry **GitHub build-provenance** tying the binary to that
-  exact commit and run (`gh attestation verify`). Every release states how it was
-  built, so you never have to assume it.
+- every release states **how it was built** — CI or by hand — so you never have to
+  assume it.
+
+GitHub build-provenance attestations are deliberately absent, and it is worth saying
+why rather than leaving a gap: GitHub does not offer them for private repositories
+owned by a personal account, and the source of a post-quantum chain is not going
+public to satisfy a platform restriction. The reproducible build is the stronger
+claim in any case — it lets you rebuild the binary yourself and compare, rather than
+trusting a third party's statement that someone else did.
 
 Sole authority, zero required trust in a third party.
 
