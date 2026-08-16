@@ -14,8 +14,9 @@ anyone can join the testnet and help harden the network toward an honest mainnet
 - Live network view: https://vigichain.org/explorer
 - Wallet: https://vigichain.org/wallet
 
-> **Update to `v1.0.4-testnet`.** It is the first build that can actually join the
-> network. Every earlier release, `v1.0.3-testnet` included, could dial a peer,
+> **Update to `v1.0.5-testnet`.** v1.0.4 was the first build that could join over a
+> direct peer; this one joins over the **relay**, which is the path anyone behind a
+> home router uses. Earlier builds could not. Every earlier release, `v1.0.3-testnet` included, could dial a peer,
 > complete a handshake, ask for the chain — and then sit at height zero forever
 > without printing a reason. If you tried to run a node before 16 August 2026 and
 > gave up, that was not your setup. `v1.0.3` also fixed a producer that refused
