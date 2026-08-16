@@ -15,5 +15,5 @@ can be protected first.
 - Your node creates a keystore at `node_key.json` (default under the data dir). It is
   written owner-only and the secret key is never printed. **Do not share it.**
 - Only run binaries downloaded from this repository's official Releases, and verify
-  the checksum against `SHA256SUMS` before running.
+  the checksum against the release's signed `SHA256SUMS.txt` before running.
 - Test VIGI confers no right, claim or entitlement of any kind.

@@ -10,8 +10,15 @@ anyone can join the testnet and help harden the network toward an honest mainnet
 > sustained burn-in. Running a node today makes you a **founding operator**.
 
 - Website: https://vigichain.org
-- Explorer: https://vigichain.org/explorer
+- VigiScan (block explorer): https://vigichain.org/scan
+- Live network view: https://vigichain.org/explorer
 - Wallet: https://vigichain.org/wallet
+
+> **Update to `v1.0.3-testnet`.** Earlier builds stop producing after ten minutes of
+> silence on the network and never recover on their own: the producer built a block
+> at the stall-reset target and then refused it, once per block interval, without
+> saying so. If your node's height has stopped moving while it still answers RPC,
+> that is this bug. Replace the binary, keep your `VIGI_DATA_DIR`, restart.
 
 ---
 
@@ -31,13 +38,14 @@ anyone can join the testnet and help harden the network toward an honest mainnet
 
 ## Download & verify
 
-Download the binary for your OS from the **[Releases](../../releases)** page, then
-verify its checksum against `SHA256SUMS`:
+Download the build for your OS from the **[Releases](../../releases)** page (the
+releases are pre-releases, so `/releases/latest` will not show them — open the
+list), then verify what you downloaded against `SHA256SUMS.txt`:
 
 ```bash
 # Linux
-sha256sum -c SHA256SUMS 2>/dev/null | grep vigichain-node-linux
-chmod +x vigichain-node-linux-x86_64
+sha256sum -c SHA256SUMS.txt
+tar xzf vigichain-node-linux-x86_64.tar.gz     # unpacks ./vigichain-node
 ```
 
 ```powershell
@@ -59,12 +67,15 @@ RWQItT0J/YGNHI45GYmzWqVLUP+fMp5GXIbKxjp7eH/l7vZLfhv7KUsa
 
 ```bash
 # minisign — save the key line above as vigichain.pub (prefixed with a comment line):
-minisign -Vm vigichain-node-linux-x86_64 -p vigichain.pub
+minisign -Vm vigichain-node-linux-x86_64.tar.gz -p vigichain.pub
 
 # or rsign2 (no key file needed — paste the key inline):
 rsign verify -P RWQItT0J/YGNHI45GYmzWqVLUP+fMp5GXIbKxjp7eH/l7vZLfhv7KUsa \
-  -x vigichain-node-linux-x86_64.sig vigichain-node-linux-x86_64
+  -x vigichain-node-linux-x86_64.tar.gz.sig vigichain-node-linux-x86_64.tar.gz
 ```
+
+`SHA256SUMS.txt` is signed too, so the checksums themselves can be verified before
+you trust them.
 
 A binary is authentic only if verification succeeds against that key. VigiChain is
 **sovereign**: releases are signed by a single UTXO Labs key — but you never have to
@@ -74,8 +85,9 @@ A binary is authentic only if verification succeeds against that key. VigiChain 
   build host or a compromised account;
 - builds are **reproducible** — rebuild from the audited source commit and confirm
   the binary matches bit-for-bit;
-- each release carries **GitHub build-provenance** tying the binary to that exact
-  commit and CI run (`gh attestation verify`).
+- CI-built releases also carry **GitHub build-provenance** tying the binary to that
+  exact commit and run (`gh attestation verify`). Every release states how it was
+  built, so you never have to assume it.
 
 Sole authority, zero required trust in a third party.
 
@@ -83,7 +95,7 @@ Sole authority, zero required trust in a third party.
 
 ```bash
 # Linux
-VIGI_NETWORK=testnet ./vigichain-node-linux-x86_64 start
+VIGI_NETWORK=testnet ./vigichain-node start
 ```
 
 ```powershell
@@ -98,9 +110,14 @@ start with `tvigi1`.
 
 ### Mine testnet VIGI
 
+Mining is part of running a node, not a separate command: a node with mining on
+validates, produces and persists real blocks. (The old standalone `mine` command is
+disabled — it did not produce canonical blocks.)
+
 ```bash
-VIGI_NETWORK=testnet VIGI_MINER_ADDRESS=<your tvigi1 address> \
-  ./vigichain-node-linux-x86_64 mine
+VIGI_NETWORK=testnet VIGI_ENABLE_MINING=true \
+  VIGI_MINER_ADDRESS=<your tvigi1 address> \
+  ./vigichain-node start
 ```
 
 ## Configuration (environment variables)
@@ -109,7 +126,9 @@ VIGI_NETWORK=testnet VIGI_MINER_ADDRESS=<your tvigi1 address> \
 |---|---|---|
 | `VIGI_NETWORK` | `testnet` (this repo) / `devnet` (local) | `testnet` |
 | `VIGI_NODE_KEY_PATH` | node identity keystore path | `<data_dir>/node_key.json` |
-| `VIGI_MINER_ADDRESS` | `tvigi1…` address that receives mined rewards | none |
+| `VIGI_ENABLE_MINING` | produce blocks as well as validate them | `false` |
+| `VIGI_MINING_THREADS` | proof-of-work threads when mining | CPU count |
+| `VIGI_MINER_ADDRESS` | `tvigi1…` address that receives mined rewards | node's own |
 | `VIGI_BOOTNODES` | comma-separated peers, or `local` for a private lab | network default |
 | `VIGI_DATA_DIR` | chain + keystore storage | platform data dir |
 
