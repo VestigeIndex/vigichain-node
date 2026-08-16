@@ -14,15 +14,15 @@ anyone can join the testnet and help harden the network toward an honest mainnet
 - Live network view: https://vigichain.org/explorer
 - Wallet: https://vigichain.org/wallet
 
-> **Update to `v1.0.5-testnet`.** v1.0.4 was the first build that could join over a
-> direct peer; this one joins over the **relay**, which is the path anyone behind a
-> home router uses. Earlier builds could not. Every earlier release, `v1.0.3-testnet` included, could dial a peer,
-> complete a handshake, ask for the chain — and then sit at height zero forever
-> without printing a reason. If you tried to run a node before 16 August 2026 and
-> gave up, that was not your setup. `v1.0.3` also fixed a producer that refused
-> its own blocks after ten minutes of network silence, so a node on any earlier
-> build stops moving and stays stopped. Replace the binary, keep your
-> `VIGI_DATA_DIR`, restart.
+> **Update to `v1.0.6-testnet`.** It is the first release built end to end by the
+> pipeline — reproducible container build, signatures, SBOM, and a verification job
+> that re-checks every artifact before publishing. v1.0.4 was the first build that
+> could join over a direct peer and v1.0.5 the first that could join through the
+> **relay**, which is the path anyone behind a home router uses. Every release
+> before those could dial a peer, complete a handshake, ask for the chain — and
+> then sit at height zero forever without printing a reason. If you tried to run a
+> node before 16 August 2026 and gave up, that was not your setup. Replace the
+> binary, keep your `VIGI_DATA_DIR`, restart.
 
 ## Install in one command
 
