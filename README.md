@@ -14,11 +14,32 @@ anyone can join the testnet and help harden the network toward an honest mainnet
 - Live network view: https://vigichain.org/explorer
 - Wallet: https://vigichain.org/wallet
 
-> **Update to `v1.0.3-testnet`.** Earlier builds stop producing after ten minutes of
-> silence on the network and never recover on their own: the producer built a block
-> at the stall-reset target and then refused it, once per block interval, without
-> saying so. If your node's height has stopped moving while it still answers RPC,
-> that is this bug. Replace the binary, keep your `VIGI_DATA_DIR`, restart.
+> **Update to `v1.0.4-testnet`.** It is the first build that can actually join the
+> network. Every earlier release, `v1.0.3-testnet` included, could dial a peer,
+> complete a handshake, ask for the chain — and then sit at height zero forever
+> without printing a reason. If you tried to run a node before 16 August 2026 and
+> gave up, that was not your setup. `v1.0.3` also fixed a producer that refused
+> its own blocks after ten minutes of network silence, so a node on any earlier
+> build stops moving and stays stopped. Replace the binary, keep your
+> `VIGI_DATA_DIR`, restart.
+
+## Install in one command
+
+No administrator rights, nothing outside `~/.vigichain`, and the binary's checksum
+**and signature** are verified before anything runs:
+
+```bash
+# Linux, or Windows inside WSL
+curl -fsSL https://vigichain.org/join.sh | bash
+```
+
+```powershell
+# Windows PowerShell — uses WSL when it is available, which is the supported path
+irm https://vigichain.org/join.ps1 | iex
+```
+
+Undo it with `rm -rf ~/.vigichain`. No service is installed and nothing starts by
+itself at boot. The manual route is below.
 
 ---
 
