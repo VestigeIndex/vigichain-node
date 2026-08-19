@@ -142,6 +142,8 @@ Mining is part of running a node, not a separate command: a node with mining on
 validates, produces and persists real blocks. (The old standalone `mine` command is
 disabled — it did not produce canonical blocks.)
 
+> **Note on synchronizing:** You do **not** need to start from genesis or provide manual anchor blocks. The node automatically discovers the longest chain from the `seed-04` node (which acts as the main synchronization point) and catches up seamlessly. Just run it.
+
 ```bash
 VIGI_NETWORK=testnet VIGI_ENABLE_MINING=true \
   VIGI_MINER_ADDRESS=<your tvigi1 address> \
