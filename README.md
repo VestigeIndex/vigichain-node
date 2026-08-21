@@ -142,6 +142,8 @@ Mining is part of running a node, not a separate command: a node with mining on
 validates, produces and persists real blocks. (The old standalone `mine` command is
 disabled — it did not produce canonical blocks.)
 
+> **Note on synchronizing:** You do **not** need to start from genesis or provide manual anchor blocks. The node automatically discovers the longest chain from the `seed-04` node (which acts as the main synchronization point) and catches up seamlessly. Just run it.
+
 ```bash
 VIGI_NETWORK=testnet VIGI_ENABLE_MINING=true \
   VIGI_MINER_ADDRESS=<your tvigi1 address> \
@@ -157,7 +159,7 @@ VIGI_NETWORK=testnet VIGI_ENABLE_MINING=true \
 | `VIGI_ENABLE_MINING` | produce blocks as well as validate them | `false` |
 | `VIGI_MINING_THREADS` | proof-of-work threads when mining | CPU count |
 | `VIGI_MINER_ADDRESS` | `tvigi1…` address that receives mined rewards | node's own |
-| `VIGI_BOOTNODES` | comma-separated peers, or `local` for a private lab | network default |
+| `VIGI_BOOTNODES` | comma-separated peers, or `local` for a private lab | `seed-04.vigichain.org:28719` |
 | `VIGI_DATA_DIR` | chain + keystore storage | platform data dir |
 
 Mainnet will not start: it is refused at compile time until launch, by design.
