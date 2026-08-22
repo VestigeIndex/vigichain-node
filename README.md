@@ -1,187 +1,91 @@
-# VigiChain Node — Public Testnet
+# VigiChain Node — Public Testnet Distribution
 
-Run a node on the **VigiChain** public, post-quantum test network. This repository
-distributes the **ready-to-run node binary** and the instructions to operate it.
-It does **not** contain source code — it is the official node build, published so
-anyone can join the testnet and help harden the network toward an honest mainnet.
+This repository is the binary-distribution surface for the VigiChain public testnet. It contains
+operator launchers and verification policy, not the private Core source.
 
-> **Testnet only.** VIGI on the testnet carries **no real value**. Mainnet is
-> **locked** in the software and stays locked until an external security audit and
-> sustained burn-in. Running a node today makes you a **founding operator**.
+> **TESTNET ONLY — NO REAL VALUE. MAINNET IS LOCKED.** No artifact in this repository enables
+> mainnet. The current Core keeps `MAINNET_LAUNCHED=false`.
 
-- Website: https://vigichain.org
-- VigiScan (block explorer): https://vigichain.org/scan
-- Live network view: https://vigichain.org/explorer
-- Wallet: https://vigichain.org/wallet
+## Distribution status: frozen pending a remediated RC
 
-> **Update to `v1.0.6-testnet`.** It is the first release built end to end by the
-> pipeline — reproducible container build, signatures, SBOM, and a verification job
-> that re-checks every artifact before publishing. v1.0.4 was the first build that
-> could join over a direct peer and v1.0.5 the first that could join through the
-> **relay**, which is the path anyone behind a home router uses. Every release
-> before those could dial a peer, complete a handshake, ask for the chain — and
-> then sit at height zero forever without printing a reason. If you tried to run a
-> node before 16 August 2026 and gave up, that was not your setup. Replace the
-> binary, keep your `VIGI_DATA_DIR`, restart.
+The latest published release visible during the 22 August 2026 audit,
+`v1.0.10-testnet`, has only two binaries and `SHA256SUMS.txt`. It does **not** include detached
+signatures, an SBOM or provenance. It therefore fails this repository's release policy and must
+not be presented as a verified pre-mainnet RC.
 
-## Install in one command
+Older releases do not contain the current Core security remediations. In particular, the legacy
+WebSocket relay is a broadcast bus and cannot provide the authenticated point-to-point PQ session
+that the current protocol requires. Do not downgrade to regain relay connectivity.
 
-No administrator rights, nothing outside `~/.vigichain`, and the binary's checksum
-**and signature** are verified before anything runs:
+Installation and one-line download instructions remain suspended until a new release passes every
+gate in [`RELEASE_POLICY.md`](RELEASE_POLICY.md). This is deliberate fail-closed behaviour.
 
-```bash
-# Linux, or Windows inside WSL
-curl -fsSL https://vigichain.org/join.sh | bash
-```
+## Required release contents
 
-```powershell
-# Windows PowerShell — uses WSL when it is available, which is the supported path
-irm https://vigichain.org/join.ps1 | iex
-```
+A release is eligible to run only when it contains, for the selected platform:
 
-Undo it with `rm -rf ~/.vigichain`. No service is installed and nothing starts by
-itself at boot. The manual route is below.
+- the node binary;
+- a detached `<binary>.sig` signature;
+- a checksum manifest covering the exact binary;
+- a CycloneDX SBOM;
+- signed build-provenance evidence bound to the source commit and artifact digest.
 
----
+The launchers in `scripts/` verify the detached binary signature before execution. They refuse a
+missing signature, missing verifier or invalid signature. A checksum alone proves download
+integrity, not publisher authenticity.
 
-## What you get
+VigiChain release public key:
 
-- A single self-contained binary that mines and validates VigiChain testnet blocks.
-- **Post-quantum consensus** end to end (ML-DSA-65 / SLH-DSA) — your node verifies
-  every block for itself.
-- **Zero premint, no allowlist.** Testnet VIGI is only mined, from block zero, on the
-  same terms for everyone.
-
-## Requirements
-
-- 64-bit Linux or Windows (x86-64), a modern CPU, ~1 GB free disk to start.
-- Outbound internet. For inbound peering, allow TCP **28719** (or run behind the
-  free relay — see *Peering behind NAT*).
-
-## Download & verify
-
-Download the build for your OS from the **[Releases](../../releases)** page (the
-releases are pre-releases, so `/releases/latest` will not show them — open the
-list), then verify what you downloaded against `SHA256SUMS.txt`:
-
-```bash
-# Linux
-sha256sum -c SHA256SUMS.txt
-tar xzf vigichain-node-linux-x86_64.tar.gz     # unpacks ./vigichain-node
-```
-
-```powershell
-# Windows (PowerShell)
-Get-FileHash .\vigichain-node-windows-x86_64.exe -Algorithm SHA256
-```
-
-### Verify the signature (recommended)
-
-A checksum alone does not prove *who* built the binary. Each release ships a `.sig`
-next to every binary, made with the VigiChain release key. Verify it with
-[minisign](https://jedisct1.github.io/minisign/) or the compatible
-[rsign2](https://github.com/jedisct1/rsign2):
-
-**VigiChain release public key:**
-```
+```text
 RWQItT0J/YGNHI45GYmzWqVLUP+fMp5GXIbKxjp7eH/l7vZLfhv7KUsa
 ```
 
-```bash
-# minisign — save the key line above as vigichain.pub (prefixed with a comment line):
-minisign -Vm vigichain-node-linux-x86_64.tar.gz -p vigichain.pub
+Linux verification example for a conforming future release:
 
-# or rsign2 (no key file needed — paste the key inline):
+```bash
+sha256sum -c SHA256SUMS
 rsign verify -P RWQItT0J/YGNHI45GYmzWqVLUP+fMp5GXIbKxjp7eH/l7vZLfhv7KUsa \
-  -x vigichain-node-linux-x86_64.tar.gz.sig vigichain-node-linux-x86_64.tar.gz
+  -x vigichain-node-linux-x86_64.sig vigichain-node-linux-x86_64
 ```
 
-`SHA256SUMS.txt` is signed too, so the checksums themselves can be verified before
-you trust them.
+The repository does not claim that the private half is offline or hardware-held without an
+independently documented key ceremony. The currently audited Core workflow injects a signing key
+from CI secret storage; that is an online signing model and must be described as such until the
+owner establishes an offline ceremony.
 
-A binary is authentic only if verification succeeds against that key. VigiChain is
-**sovereign**: releases are signed by a single UTXO Labs key — but you never have to
-*trust* that signature. Integrity is meant to be **verified, not trusted**:
+## Network operation after the next verified RC
 
-- the release key is held **offline / in hardware**, so it cannot be stolen from a
-  build host or a compromised account;
-- builds are **reproducible** — rebuild from the audited source commit and confirm
-  the binary matches bit-for-bit;
-- every release states **how it was built** — CI or by hand — so you never have to
-  assume it.
+The remediated transport supports authenticated direct TCP peers and Tor v3 peers. The automatic
+legacy relay path is disabled fail-closed. Operators behind NAT may make outbound direct or Tor
+connections; they must not bypass PQ authentication to restore the old relay.
 
-GitHub build-provenance attestations are deliberately absent, and it is worth saying
-why rather than leaving a gap: GitHub does not offer them for private repositories
-owned by a personal account, and the source of a post-quantum chain is not going
-public to satisfy a platform restriction. The reproducible build is the stronger
-claim in any case — it lets you rebuild the binary yourself and compare, rather than
-trusting a third party's statement that someone else did.
-
-Sole authority, zero required trust in a third party.
-
-## Run a testnet node
-
-```bash
-# Linux
-VIGI_NETWORK=testnet ./vigichain-node start
-```
-
-```powershell
-# Windows
-$env:VIGI_NETWORK = "testnet"
-.\vigichain-node-windows-x86_64.exe start
-```
-
-Your node creates a persistent identity once at `<data_dir>/node_key.json`
-(owner-only permissions; the secret key is **never printed**). Testnet addresses
-start with `tvigi1`.
-
-### Mine testnet VIGI
-
-Mining is part of running a node, not a separate command: a node with mining on
-validates, produces and persists real blocks. (The old standalone `mine` command is
-disabled — it did not produce canonical blocks.)
-
-> **Note on synchronizing:** You do **not** need to start from genesis or provide manual anchor blocks. The node automatically discovers the longest chain from the `seed-04` node (which acts as the main synchronization point) and catches up seamlessly. Just run it.
-
-```bash
-VIGI_NETWORK=testnet VIGI_ENABLE_MINING=true \
-  VIGI_MINER_ADDRESS=<your tvigi1 address> \
-  ./vigichain-node start
-```
-
-## Configuration (environment variables)
+Default testnet settings:
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `VIGI_NETWORK` | `testnet` (this repo) / `devnet` (local) | `testnet` |
-| `VIGI_NODE_KEY_PATH` | node identity keystore path | `<data_dir>/node_key.json` |
-| `VIGI_ENABLE_MINING` | produce blocks as well as validate them | `false` |
-| `VIGI_MINING_THREADS` | proof-of-work threads when mining | CPU count |
-| `VIGI_MINER_ADDRESS` | `tvigi1…` address that receives mined rewards | node's own |
-| `VIGI_BOOTNODES` | comma-separated peers, or `local` for a private lab | `seed-04.vigichain.org:28719` |
-| `VIGI_DATA_DIR` | chain + keystore storage | platform data dir |
+| `VIGI_NETWORK` | `testnet` or isolated `devnet` | `testnet` |
+| `VIGI_NODE_KEY_PATH` | persistent PQ node identity | `<data_dir>/node_key.json` |
+| `VIGI_ENABLE_MINING` | validate and produce testnet blocks | `false` |
+| `VIGI_MINING_THREADS` | proof-of-work threads | CPU count |
+| `VIGI_MINER_ADDRESS` | `tvigi1…` reward address | node identity address |
+| `VIGI_BOOTNODES` | comma-separated direct peers, or `local` | `seed-04.vigichain.org:28719` |
+| `VIGI_RELAY_URL` | legacy relay selector | unset / `off` only |
+| `VIGI_DATA_DIR` | chain and keystore storage | platform data dir |
 
-Mainnet will not start: it is refused at compile time until launch, by design.
+Once a conforming RC exists, place its binary and adjacent `.sig` file in this checkout and use:
 
-## Peering behind NAT
+```bash
+scripts/run-node.sh start
+```
 
-Home operators behind a router can peer without opening ports by pointing the node
-at the public WebSocket relay published at `p2p.vigichain.org` (a transport relay
-only — every node still validates all blocks locally). See the website for the
-current relay endpoint and status.
+```powershell
+.\scripts\run-node.ps1 start
+```
 
-## Updating
+The node identity keystore is persistent, owner-only and must never be shared. Preserve
+`VIGI_DATA_DIR` across upgrades. Mainnet startup remains refused by the binary.
 
-Download the newer release, verify its checksum, and restart with the same
-`VIGI_DATA_DIR`. Your chain data and identity are preserved.
+## Security and license
 
-## Support & security
-
-Questions and vulnerability reports: see [`SECURITY.md`](SECURITY.md).
-
-## License
-
-Proprietary — see [`LICENSE`](LICENSE). You may **run** this binary to operate a
-VigiChain node. You may **not** reverse engineer, modify, or redistribute it.
-© UTXO Labs. All rights reserved.
+Report vulnerabilities privately as described in [`SECURITY.md`](SECURITY.md). Testnet VIGI has no
+monetary value or entitlement. The binary distribution license is in [`LICENSE`](LICENSE).
