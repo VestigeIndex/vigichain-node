@@ -1,0 +1,56 @@
+name: Distribution integrity
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  policy:
+    name: Distribution policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Validate launcher syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/run-node.sh scripts/verify-release.sh
+          pwsh -NoProfile -Command '$tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile("scripts/run-node.ps1", [ref]$tokens, [ref]$errors) > $null; [System.Management.Automation.Language.Parser]::ParseFile("scripts/verify-release.ps1", [ref]$tokens, [ref]$errors) > $null; if ($errors.Count) { $errors | Out-String | Write-Error; exit 1 }'
+
+      - name: Prove launchers fail closed without verified artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          if scripts/verify-release.sh ./missing-node 2>/dev/null; then
+            echo 'Linux verifier accepted a missing binary' >&2
+            exit 1
+          fi
+          if scripts/run-node.sh start >/dev/null 2>&1; then
+            echo 'Linux launcher started without a verified binary' >&2
+            exit 1
+          fi
+          pwsh -NoProfile -Command 'try { & ./scripts/verify-release.ps1 -Binary ./missing-node; throw "PowerShell verifier accepted a missing binary" } catch { if ($_.Exception.Message -like "PowerShell verifier accepted*") { throw } }'
+
+      - name: Enforce testnet-only public configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fxq 'VIGI_NETWORK=testnet' config/testnet.env.example
+          ! grep -RInE 'VIGI_NETWORK[=:][[:space:]]*mainnet|MAINNET_LAUNCHED[=:][[:space:]]*true' \
+            README.md RELEASE_POLICY.md config scripts
+
+      - name: Enforce release-policy coherence
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'v1.0.10-testnet' README.md
+          grep -Fq 'v1.0.10-testnet' RELEASE_POLICY.md
+          grep -Fq 'FAIL — DO NOT RUN AS A VERIFIED RC' RELEASE_POLICY.md
+          grep -Fq 'MAINNET_LAUNCHED=false' RELEASE_POLICY.md
+          grep -Fq 'signed in-toto/SLSA-compatible statement' README.md
