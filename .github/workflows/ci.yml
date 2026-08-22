@@ -53,4 +53,4 @@ jobs:
           grep -Fq 'v1.0.10-testnet' RELEASE_POLICY.md
           grep -Fq 'FAIL — DO NOT RUN AS A VERIFIED RC' RELEASE_POLICY.md
           grep -Fq 'MAINNET_LAUNCHED=false' RELEASE_POLICY.md
-          grep -Fq 'signed in-toto/SLSA-compatible statement' README.md
+          grep -Fq 'signed build-provenance evidence' README.md
