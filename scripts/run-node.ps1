@@ -3,7 +3,7 @@
 $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..")
 if (-not $env:VIGI_NETWORK) { $env:VIGI_NETWORK = "testnet" }
-if (-not $env:VIGI_BOOTNODES) { $env:VIGI_BOOTNODES = "seed-04.vigichain.org:28719" }
+if (-not $env:VIGI_BOOTNODES) { $env:VIGI_BOOTNODES = "seed-1.vigichain.org:28719,seed-2.vigichain.org:28719,seed-3.vigichain.org:28719" }
 $bin = ".\vigichain-node-windows-x86_64.exe"
 if (-not (Test-Path $bin)) {
   Write-Host "Windows binary not found. Download it from the Releases page into this folder."

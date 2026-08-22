@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export VIGI_NETWORK="${VIGI_NETWORK:-testnet}"
-export VIGI_BOOTNODES="${VIGI_BOOTNODES:-seed-04.vigichain.org:28719}"
+export VIGI_BOOTNODES="${VIGI_BOOTNODES:-seed-1.vigichain.org:28719,seed-2.vigichain.org:28719,seed-3.vigichain.org:28719}"
 BIN="./vigichain-node-linux-x86_64"
 if [ ! -x "$BIN" ]; then
   echo "Binary not found or not executable."

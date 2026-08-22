@@ -1,3 +1,7 @@
-# Node core logic
-/scripts/ @VestigeIndex/release-engineers
-/docker/ @VestigeIndex/release-engineers
+# vigichain-node CODEOWNERS
+# Critical runner scripts, configurations, and binaries require VestigeIndex review.
+* @VestigeIndex
+
+/scripts/ @VestigeIndex
+/config/  @VestigeIndex
+/README.md @VestigeIndex
