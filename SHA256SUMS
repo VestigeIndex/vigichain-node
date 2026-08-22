@@ -1,8 +1,0 @@
-# Checksums for the CURRENT release live in the release itself, as SHA256SUMS.txt,
-# and are signed with the VigiChain release key. This file is kept only so older
-# links do not 404; it describes v1.0.0-testnet and is not what you should verify
-# a download against.
-#
-# Current release: https://github.com/VestigeIndex/vigichain-node/releases
-7fd3323e035bfc46738dc32d41ecc72e42b3dba59f5f8e14223201c4e97e7593  vigichain-node-linux-x86_64
-427722031068053bec64855390e2ff7352013f1166b08f5f9fd815b5df5bda88  vigichain-node-windows-x86_64.exe

@@ -9,5 +9,6 @@ if (-not (Test-Path $bin)) {
   Write-Host "Windows binary not found. Download it from the Releases page into this folder."
   exit 1
 }
+& (Join-Path $PSScriptRoot "verify-release.ps1") -Binary $bin
 $cmd = if ($args.Count -gt 0) { $args[0] } else { "start" }
 & $bin $cmd

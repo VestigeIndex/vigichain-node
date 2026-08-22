@@ -11,4 +11,5 @@ if [ ! -x "$BIN" ]; then
   echo "Download it from the Releases page, place it here, then: chmod +x $BIN"
   exit 1
 fi
+"./scripts/verify-release.sh" "$BIN"
 exec "$BIN" "${1:-start}"
