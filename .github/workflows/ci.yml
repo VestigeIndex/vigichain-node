@@ -35,7 +35,7 @@ jobs:
             echo 'Linux launcher started without a verified binary' >&2
             exit 1
           fi
-          pwsh -NoProfile -Command 'try { & ./scripts/verify-release.ps1 -Binary ./missing-node; throw "PowerShell verifier accepted a missing binary" } catch { if ($_.Exception.Message -like "PowerShell verifier accepted*") { throw } }'
+          pwsh -NoProfile -Command 'try { & ./scripts/verify-release.ps1 -Binary ./missing-node; throw "PowerShell verifier accepted a missing binary" } catch { if ($_.Exception.Message -like "PowerShell verifier accepted*") { throw }; exit 0 }'
 
       - name: Enforce testnet-only public configuration
         shell: bash
