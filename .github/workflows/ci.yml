@@ -45,6 +45,28 @@ jobs:
           ! grep -RInE 'VIGI_NETWORK[=:][[:space:]]*mainnet|MAINNET_LAUNCHED[=:][[:space:]]*true' \
             README.md RELEASE_POLICY.md config scripts
 
+      - name: No unattested executable may sit in the tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          # `.gitignore` has said "Binaries are published via GitHub Releases, never committed to
+          # the tree" — and named this exact filename — the whole time. It does not apply to a file
+          # that is already TRACKED, and one was: an unsigned `vigichain-node-windows-x86_64.exe`
+          # sat at the repo root, with a hash matching no checksum manifest, using the very
+          # filename `scripts/run-node.ps1` executes. A user told to "download the binary into this
+          # folder" never downloaded anything, because the slot was already filled with a binary
+          # nobody had verified — while RELEASE_POLICY.md declared the release FAIL / DO NOT RUN
+          # (2026-08-22 audit, F-10).
+          #
+          # An ignore rule is a request. This is the check.
+          tracked_bins="$(git ls-files | grep -E '(\.exe$|vigichain-node-(linux|macos)-)' || true)"
+          if [ -n "$tracked_bins" ]; then
+            echo "Executable(s) committed to the tree, which the release policy forbids:" >&2
+            echo "$tracked_bins" >&2
+            echo "Publish them through Releases with a detached signature instead." >&2
+            exit 1
+          fi
+
       - name: Enforce release-policy coherence
         shell: bash
         run: |
