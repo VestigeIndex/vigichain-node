@@ -20,7 +20,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bash -n scripts/run-node.sh scripts/verify-release.sh
+          bash -n scripts/run-node.sh scripts/verify-release.sh scripts/tests/verify-release-negatives.sh
+          python3 -m py_compile scripts/check-release-metadata.py
           pwsh -NoProfile -Command '$tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile("scripts/run-node.ps1", [ref]$tokens, [ref]$errors) > $null; [System.Management.Automation.Language.Parser]::ParseFile("scripts/verify-release.ps1", [ref]$tokens, [ref]$errors) > $null; if ($errors.Count) { $errors | Out-String | Write-Error; exit 1 }'
 
       - name: Prove launchers fail closed without verified artifacts
@@ -71,8 +72,33 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # The pre-signature releases must stay named as unusable, whatever the current one is.
           grep -Fq 'v1.0.10-testnet' README.md
           grep -Fq 'v1.0.10-testnet' RELEASE_POLICY.md
           grep -Fq 'FAIL — DO NOT RUN AS A VERIFIED RC' RELEASE_POLICY.md
           grep -Fq 'MAINNET_LAUNCHED=false' RELEASE_POLICY.md
           grep -Fq 'signed build-provenance evidence' README.md
+          # The two gates a published release does NOT satisfy have to keep being said out loud;
+          # a status table that only lists what passed is how a badge replaces a policy.
+          grep -Fq 'independent rebuild' RELEASE_POLICY.md
+          grep -Fq 'Dependency inventory binding' RELEASE_POLICY.md
+          # README and policy must name the same current release.
+          readme_tag="$(grep -oE 'node-v[0-9]+\.[0-9]+\.[0-9]+-testnet' README.md | head -1)"
+          test -n "$readme_tag"
+          grep -Fq "$readme_tag" RELEASE_POLICY.md
+
+      - name: The verifier must refuse every incomplete package
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Signature-level cases need rsign; without it the script still runs every metadata case,
+          # which is the half that no signing key can substitute for. Installing rsign2 from source
+          # in CI costs minutes, so this job takes the metadata half and the release workflow (which
+          # already has the toolchain) is where the signed half belongs.
+          if ! command -v gh >/dev/null 2>&1; then
+            echo 'gh is required to fetch the published release' >&2
+            exit 1
+          fi
+          bash scripts/tests/verify-release-negatives.sh
