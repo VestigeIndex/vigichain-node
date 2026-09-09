@@ -10,3 +10,6 @@ vigi-data/
 node_key.json
 *.log
 .env
+
+# Python bytecode from running the verification tooling locally
+__pycache__/
