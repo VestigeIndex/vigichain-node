@@ -27,13 +27,13 @@ Mission Control exposes Automatic / Maximum / Off, Compact now, Restore verified
 
 ## Post-quantum authentication boundary
 
-Compression itself is not post-quantum cryptography. VGC1 currently provides local canonical integrity through SHA-256 and exact reconstruction. When Compact objects become distributable snapshots/archive segments, authentication belongs in a **signed manifest envelope**, not inside the compression algorithm.
+Compression itself is not post-quantum cryptography. VGC1 currently provides local canonical integrity through SHA-256 and exact reconstruction. When Compact objects become distributable snapshots/archive segments, authentication belongs in a signed manifest envelope, not inside the codec.
 
-The future network/archive manifest should bind network, object kind, canonical digest/length, chunk/Merkle root, codec/version and source block height/hash, then be authenticated with the standardized post-quantum signature policy selected by VigiChain Core (for example ML-DSA or SLH-DSA if adopted by Core). Vigi Miner must consume Core's versioned signature policy rather than invent a new cryptosystem or hard-code a separate consensus trust root.
+A future archive manifest should bind network, object kind, canonical digest/length, chunk/Merkle root, codec/version and source block height/hash, then use the standardized post-quantum signature policy selected by VigiChain Core. Vigi Miner must consume Core's versioned signature policy rather than inventing a cryptosystem or separate consensus trust root.
 
 ## Deliberate Core boundary
 
-The public distribution repository does not contain the private VigiChain Core persistence implementation. Vigi Miner therefore does **not** parse, mutate, rename or compress the private chain database directly.
+The public distribution repository does not contain private VigiChain Core persistence. Vigi Miner therefore does **not** parse, mutate, rename or compress the private chain database directly.
 
 Production integration requires Core to expose immutable canonical objects over versioned local IPC:
 
