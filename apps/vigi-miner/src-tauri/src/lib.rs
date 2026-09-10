@@ -1,5 +1,9 @@
 use serde::{Deserialize, Serialize};
-use std::{path::PathBuf, process::{Child, Command, Stdio}, sync::Mutex};
+use std::{
+    path::PathBuf,
+    process::{Child, Command, Stdio},
+    sync::Mutex,
+};
 use tauri::State;
 
 struct MinerProcess(Mutex<Option<Child>>);
@@ -13,15 +17,29 @@ struct MinerConfig {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct NodeStatus {
     running: bool,
     pid: Option<u32>,
+    binary_available: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SystemInfo {
+    logical_cpus: usize,
+    architecture: String,
+    operating_system: String,
+    node_binary_available: bool,
+    node_binary_path: Option<String>,
 }
 
 fn node_binary_path() -> Result<PathBuf, String> {
     if let Ok(explicit) = std::env::var("VIGI_NODE_BINARY") {
         let path = PathBuf::from(explicit);
-        if path.exists() { return Ok(path); }
+        if path.exists() {
+            return Ok(path);
+        }
         return Err("VIGI_NODE_BINARY points to a missing file".into());
     }
 
@@ -31,14 +49,36 @@ fn node_binary_path() -> Result<PathBuf, String> {
 
     let base = PathBuf::from(home).join(".vigichain");
     let candidates = if cfg!(windows) {
-        vec![base.join("vigichain-node-windows-x86_64.exe"), base.join("vigichain-node.exe")]
+        vec![
+            base.join("vigichain-node-windows-x86_64.exe"),
+            base.join("vigichain-node.exe"),
+        ]
     } else {
-        vec![base.join("vigichain-node-linux-x86_64"), base.join("vigichain-node")]
+        vec![
+            base.join("vigichain-node-linux-x86_64"),
+            base.join("vigichain-node"),
+        ]
     };
 
     candidates.into_iter().find(|p| p.exists()).ok_or_else(|| {
         "Verified VigiChain node binary not found. Install a verified testnet release first or set VIGI_NODE_BINARY.".into()
     })
+}
+
+#[tauri::command]
+fn system_info() -> SystemInfo {
+    let logical_cpus = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
+    let binary = node_binary_path().ok();
+
+    SystemInfo {
+        logical_cpus,
+        architecture: std::env::consts::ARCH.to_string(),
+        operating_system: std::env::consts::OS.to_string(),
+        node_binary_available: binary.is_some(),
+        node_binary_path: binary.map(|p| p.display().to_string()),
+    }
 }
 
 #[tauri::command]
@@ -50,10 +90,24 @@ fn start_mining(config: MinerConfig, process: State<'_, MinerProcess>) -> Result
         return Err("Mining threads must be greater than zero".into());
     }
 
+    let available_threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
+    if usize::from(config.threads) > available_threads {
+        return Err(format!(
+            "Requested {} mining threads but this system exposes only {} logical CPUs",
+            config.threads, available_threads
+        ));
+    }
+
     let mut guard = process.0.lock().map_err(|_| "Miner process lock poisoned")?;
     if let Some(child) = guard.as_mut() {
         if child.try_wait().map_err(|e| e.to_string())?.is_none() {
-            return Ok(NodeStatus { running: true, pid: Some(child.id()) });
+            return Ok(NodeStatus {
+                running: true,
+                pid: Some(child.id()),
+                binary_available: true,
+            });
         }
         *guard = None;
     }
@@ -66,39 +120,64 @@ fn start_mining(config: MinerConfig, process: State<'_, MinerProcess>) -> Result
         .env("VIGI_MINER_ADDRESS", &config.address)
         .env("VIGI_BOOTNODES", &config.bootnodes)
         .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        // Until Core exposes a stable telemetry/IPC contract, avoid leaving unread pipes
+        // attached to a long-running node process. Filled stdout/stderr pipes can block it.
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .spawn()
         .map_err(|e| format!("Unable to start VigiChain node: {e}"))?;
 
     let pid = child.id();
     *guard = Some(child);
-    Ok(NodeStatus { running: true, pid: Some(pid) })
+    Ok(NodeStatus {
+        running: true,
+        pid: Some(pid),
+        binary_available: true,
+    })
 }
 
 #[tauri::command]
 fn stop_mining(process: State<'_, MinerProcess>) -> Result<NodeStatus, String> {
     let mut guard = process.0.lock().map_err(|_| "Miner process lock poisoned")?;
     if let Some(mut child) = guard.take() {
-        child.kill().map_err(|e| format!("Unable to stop VigiChain node: {e}"))?;
+        child
+            .kill()
+            .map_err(|e| format!("Unable to stop VigiChain node: {e}"))?;
         let _ = child.wait();
     }
-    Ok(NodeStatus { running: false, pid: None })
+    Ok(NodeStatus {
+        running: false,
+        pid: None,
+        binary_available: node_binary_path().is_ok(),
+    })
 }
 
 #[tauri::command]
 fn miner_status(process: State<'_, MinerProcess>) -> Result<NodeStatus, String> {
+    let binary_available = node_binary_path().is_ok();
     let mut guard = process.0.lock().map_err(|_| "Miner process lock poisoned")?;
     if let Some(child) = guard.as_mut() {
         match child.try_wait().map_err(|e| e.to_string())? {
-            None => Ok(NodeStatus { running: true, pid: Some(child.id()) }),
+            None => Ok(NodeStatus {
+                running: true,
+                pid: Some(child.id()),
+                binary_available,
+            }),
             Some(_) => {
                 *guard = None;
-                Ok(NodeStatus { running: false, pid: None })
+                Ok(NodeStatus {
+                    running: false,
+                    pid: None,
+                    binary_available,
+                })
             }
         }
     } else {
-        Ok(NodeStatus { running: false, pid: None })
+        Ok(NodeStatus {
+            running: false,
+            pid: None,
+            binary_available,
+        })
     }
 }
 
@@ -106,7 +185,12 @@ fn miner_status(process: State<'_, MinerProcess>) -> Result<NodeStatus, String> 
 pub fn run() {
     tauri::Builder::default()
         .manage(MinerProcess(Mutex::new(None)))
-        .invoke_handler(tauri::generate_handler![start_mining, stop_mining, miner_status])
+        .invoke_handler(tauri::generate_handler![
+            start_mining,
+            stop_mining,
+            miner_status,
+            system_info
+        ])
         .run(tauri::generate_context!())
         .expect("error while running Vigi Miner");
 }
