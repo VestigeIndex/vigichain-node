@@ -567,6 +567,18 @@ pub fn run() {
             compact_advice,
             telemetry_snapshot
         ])
+        // The webview keeps its zoom factor between sessions, and a factor that is not 1.0 is
+        // indistinguishable from a broken layout: at 1.2 the interface is simply wider than the
+        // window that holds it, and the right-hand column of readings leaves the screen. An
+        // instrument panel opens at its own scale, so the zoom is set explicitly on start-up
+        // instead of inheriting whatever a stray Ctrl+wheel left behind.
+        .setup(|app| {
+            use tauri::Manager;
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_zoom(1.0);
+            }
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running Vigi Miner")
 }
