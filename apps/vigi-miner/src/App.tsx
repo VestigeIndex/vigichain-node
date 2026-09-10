@@ -45,11 +45,32 @@ type CompactAdvice = {
   freeBytes: number; representedBytes: number; recommendedMode: CompactMode;
   pressure: 'normal' | 'elevated' | 'critical'; reason: string;
 };
+type CoreTelemetry = {
+  schemaVersion: number;
+  network: NetworkMode;
+  nodeVersion: string;
+  uptimeSeconds: number;
+  sync: { height: number; targetHeight: number; progress: number };
+  p2p: { authenticatedPeers: number; inboundPeers: number; outboundPeers: number };
+  mining: { enabled: boolean; threads: number; hashrateHs: number; blocksFoundSession: number; rewardAddress: string };
+  storage: {
+    chainBytes?: number | null; stateBytes?: number | null; canonicalBytes?: number | null;
+    compactBytes?: number | null; ratio?: number | null; mode?: string | null;
+  };
+};
+type TelemetryState = { available: boolean; endpoint: string; snapshot?: CoreTelemetry | null; reason?: string | null };
 
 const profileCpu: Record<PowerProfile, number> = { eco: 35, balanced: 65, performance: 90, custom: 70 };
 const compactModes: CompactMode[] = ['automatic', 'maximum', 'off'];
 const short = (value: string) => value.length > 22 ? `${value.slice(0, 12)}…${value.slice(-8)}` : value;
 const gb = (bytes: number) => `${(bytes / 1073741824).toFixed(bytes >= 1073741824 ? 2 : 3)} GB`;
+const formatHashrate = (value?: number | null) => {
+  if (value == null || !Number.isFinite(value)) return '—';
+  const units = ['H/s', 'kH/s', 'MH/s', 'GH/s', 'TH/s', 'PH/s'];
+  let n = Math.max(0, value); let i = 0;
+  while (n >= 1000 && i < units.length - 1) { n /= 1000; i += 1; }
+  return `${n >= 100 ? n.toFixed(0) : n >= 10 ? n.toFixed(1) : n.toFixed(2)} ${units[i]}`;
+};
 const savedCompactMode = (): CompactMode => {
   const mode = localStorage.getItem('vigi-compact-mode') as CompactMode | null;
   return mode && compactModes.includes(mode) ? mode : 'automatic';
@@ -68,6 +89,8 @@ export default function App() {
   const [pid, setPid] = useState<number>();
   const [binaryAvailable, setBinaryAvailable] = useState(false);
   const [system, setSystem] = useState<SystemInfo | null>(null);
+  const [telemetry, setTelemetry] = useState<TelemetryState | null>(null);
+  const [telemetrySeenAt, setTelemetrySeenAt] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [installResult, setInstallResult] = useState<InstallResult | null>(null);
@@ -86,6 +109,9 @@ export default function App() {
 
   const t = translator(locale);
   const mainnetLocked = network === 'mainnet';
+  const telemetrySnapshot = telemetry?.available ? telemetry.snapshot ?? null : null;
+  const telemetryNetworkMatch = !telemetrySnapshot || telemetrySnapshot.network === network;
+  const trustedTelemetry = telemetryNetworkMatch ? telemetrySnapshot : null;
 
   useEffect(() => {
     document.documentElement.lang = locale;
@@ -118,13 +144,19 @@ export default function App() {
     }
     async function poll() {
       try {
-        const status = await invoke<NodeStatus>('miner_status');
-        if (!disposed) {
-          setRunning(status.running);
-          setPid(status.pid);
-          setBinaryAvailable(status.binaryAvailable);
+        const [status, live] = await Promise.all([
+          invoke<NodeStatus>('miner_status'),
+          invoke<TelemetryState>('telemetry_snapshot').catch(() => null),
+        ]);
+        if (disposed) return;
+        setRunning(status.running);
+        setPid(status.pid);
+        setBinaryAvailable(status.binaryAvailable);
+        if (live) {
+          setTelemetry(live);
+          if (live.available && live.snapshot) setTelemetrySeenAt(Date.now());
         }
-      } catch { /* keep last known state */ }
+      } catch { /* preserve the last known state */ }
     }
     void init();
     void poll();
@@ -216,12 +248,20 @@ export default function App() {
   }
 
   const networkState = mainnetLocked ? t('locked') : running ? 'MINING' : binaryAvailable ? 'READY' : 'NODE REQUIRED';
+  const storageValue = trustedTelemetry?.storage.compactBytes ?? compactStats?.storedBytes ?? null;
+  const telemetryAge = telemetrySeenAt ? Math.max(0, Date.now() - telemetrySeenAt) : null;
+  const telemetryState = !telemetryNetworkMatch ? 'NETWORK MISMATCH'
+    : trustedTelemetry ? (telemetryAge != null && telemetryAge > 5000 ? 'STALE' : 'LIVE')
+      : 'UNAVAILABLE';
 
   return (
     <div className="mission-shell">
       <Sidebar view={view} setView={setView} t={t} />
       <main className="mission-main">
         <div className="utility-bar">
+          <div className={`telemetry-badge ${telemetryState.toLowerCase().replace(' ', '-')}`}>
+            <span className="telemetry-led" /> CORE TELEMETRY · {telemetryState}
+          </div>
           <div className="locale-select">
             <Languages size={14} />
             <select value={locale} onChange={(e) => setLocale(e.target.value as Locale)}>
@@ -246,6 +286,8 @@ export default function App() {
               <div className={`network-pill ${mainnetLocked ? 'locked' : ''}`}><span className="pulse" />{network.toUpperCase()} · {networkState}</div>
             </header>
 
+            {!telemetryNetworkMatch && <div className="telemetry-warning">Core telemetry reports {telemetrySnapshot?.network?.toUpperCase()} while Mission Control is set to {network.toUpperCase()}. Metrics are intentionally hidden.</div>}
+
             <section className="network-deck">
               <NetworkTile selected={network === 'testnet'} disabled={running} title={t('testnet')} subtitle={t('liveEnvironment')} badge={t('miningAvailable')} live onClick={() => { setNetwork('testnet'); setAddress(''); }} />
               <NetworkTile selected={network === 'mainnet'} disabled={running} title={t('mainnet')} subtitle={t('launchPrepared')} badge={t('locked')} onClick={() => { setNetwork('mainnet'); setAddress(''); }} />
@@ -257,17 +299,21 @@ export default function App() {
                   <div className={`core-ring ${running ? 'live' : ''}`}><div className="core-ring-inner">{mainnetLocked ? <LockKeyhole /> : running ? <Sparkles /> : <Cpu />}</div></div>
                   <div><p className="eyebrow">{t('executionState')}</p><h2>{mainnetLocked ? t('mainnetLocked') : running ? t('miningActive') : binaryAvailable ? t('ready') : t('nodeNotInstalled')}</h2><span>{running && pid ? `Process ${pid} · ${system?.containmentLevel ?? 'isolated'}` : t('localIsolation')}</span></div>
                 </div>
-
                 <div className="address-zone"><label>{t('rewardAddress')}</label><div className="address-input"><input value={address} onChange={(e) => setAddress(e.target.value)} placeholder={network === 'testnet' ? 'tvigi1…' : 'vigi1…'} disabled={mainnetLocked} spellCheck={false} /><span>{address ? short(address) : t('noKeyMaterial')}</span></div></div>
-
                 {!binaryAvailable && !mainnetLocked && <button className="install-action" onClick={installNode} disabled={installing}><Download size={18} /><div><strong>{installing ? t('verifyingRelease') : t('installVerifiedNode')}</strong><span>Signature + manifest + provenance + SBOM</span></div></button>}
                 {installResult && <div className="verified-strip"><ShieldCheck size={17} /><div><strong>{installResult.tag} verified</strong><span>{installResult.sourceCommit.slice(0, 12)}</span></div></div>}
                 {!running ? <button className="primary-action" disabled={!canStart} onClick={startMining}>{mainnetLocked ? <LockKeyhole /> : <Play />}{mainnetLocked ? t('mainnetLocked') : t('startMining')}</button> : <button className="stop-action" onClick={stopMining}><Square />{t('stopMining')}</button>}
               </div>
 
               <div className="telemetry-stack">
-                <div className="telemetry-hero"><div className="telemetry-head"><span>{t('computeEnvelope')}</span><SlidersHorizontal /></div><strong>{cpuLimitPercent}%</strong><small>{threads} / {maxThreads} {t('logicalCpus')}</small><div className="power-track"><span style={{ width: `${cpuLimitPercent}%` }} /></div></div>
-                <div className="telemetry-row"><Metric icon={<Gauge />} label="Hashrate" value={running ? '— H/s' : 'Idle'} /><Metric icon={<Network />} label="Peers" value="—" /><Metric icon={<Box />} label="Height" value="—" /><Metric icon={<HardDrive />} label="Compact" value={compactStats?.objects ? gb(compactStats.storedBytes) : 'Ready'} /></div>
+                <div className="telemetry-hero"><div className="telemetry-head"><span>{t('computeEnvelope')}</span><SlidersHorizontal /></div><strong>{cpuLimitPercent}%</strong><small>{threads} / {maxThreads} {t('logicalCpus')} · OS constrained</small><div className="power-track"><span style={{ width: `${cpuLimitPercent}%` }} /></div></div>
+                <div className="telemetry-row">
+                  <Metric icon={<Gauge />} label="Hashrate" value={trustedTelemetry ? formatHashrate(trustedTelemetry.mining.hashrateHs) : running ? '—' : 'Idle'} />
+                  <Metric icon={<Network />} label="Peers" value={trustedTelemetry ? String(trustedTelemetry.p2p.authenticatedPeers) : '—'} />
+                  <Metric icon={<Box />} label="Height" value={trustedTelemetry ? trustedTelemetry.sync.height.toLocaleString() : '—'} />
+                  <Metric icon={<HardDrive />} label="Storage" value={storageValue != null ? gb(storageValue) : '—'} />
+                </div>
+                {trustedTelemetry && <div className="sync-surface"><div><span>SYNC</span><strong>{(trustedTelemetry.sync.progress * 100).toFixed(2)}%</strong></div><div className="sync-track"><span style={{ width: `${Math.min(100, Math.max(0, trustedTelemetry.sync.progress * 100))}%` }} /></div><small>{trustedTelemetry.nodeVersion} · uptime {Math.floor(trustedTelemetry.uptimeSeconds / 60)} min · {trustedTelemetry.mining.blocksFoundSession} blocks this session</small></div>}
                 <div className="security-surface"><ShieldCheck /><div><strong>{system?.containmentLevel ?? t('privacyBoundary')}</strong><span>{system?.containmentDetail ?? t('privacyBody')}</span></div></div>
               </div>
             </section>
