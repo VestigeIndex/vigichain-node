@@ -5,7 +5,7 @@ on:
     paths: ['apps/vigi-miner/**', '.github/workflows/vigi-miner-ci.yml']
   push:
     branches: [feature/vigi-miner-desktop]
-    paths: ['apps/vigi-miner/**']
+    paths: ['apps/vigi-miner/**', '.github/workflows/vigi-miner-ci.yml']
 
 jobs:
   frontend:
@@ -31,7 +31,19 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Install Tauri Linux dependencies
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-      - run: cargo check
+      - name: Cargo check with diagnostics
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo check 2>&1 | tee cargo-check-linux.log
+      - name: Upload Linux compiler diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vigi-miner-cargo-check-linux
+          path: apps/vigi-miner/src-tauri/cargo-check-linux.log
+          if-no-files-found: error
+          retention-days: 3
       - run: cargo test
 
   rust-windows:
@@ -42,5 +54,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo check
+      - name: Cargo check with diagnostics
+        shell: pwsh
+        run: |
+          cargo check 2>&1 | Tee-Object -FilePath cargo-check-windows.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload Windows compiler diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vigi-miner-cargo-check-windows
+          path: apps/vigi-miner/src-tauri/cargo-check-windows.log
+          if-no-files-found: error
+          retention-days: 3
       - run: cargo test
