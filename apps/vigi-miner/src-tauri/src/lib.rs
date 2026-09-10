@@ -14,6 +14,7 @@ struct MinerConfig {
     address: String,
     threads: u16,
     bootnodes: String,
+    network: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -83,9 +84,18 @@ fn system_info() -> SystemInfo {
 
 #[tauri::command]
 fn start_mining(config: MinerConfig, process: State<'_, MinerProcess>) -> Result<NodeStatus, String> {
-    if !config.address.starts_with("tvigi1") {
-        return Err("Testnet reward address must start with tvigi1".into());
+    match config.network.as_str() {
+        "testnet" => {
+            if !config.address.starts_with("tvigi1") {
+                return Err("Testnet reward address must start with tvigi1".into());
+            }
+        }
+        "mainnet" => {
+            return Err("Mainnet is visible in Vigi Miner but remains locked while VigiChain Core keeps MAINNET_LAUNCHED=false".into());
+        }
+        _ => return Err("Unsupported VigiChain network".into()),
     }
+
     if config.threads == 0 {
         return Err("Mining threads must be greater than zero".into());
     }
@@ -120,8 +130,6 @@ fn start_mining(config: MinerConfig, process: State<'_, MinerProcess>) -> Result
         .env("VIGI_MINER_ADDRESS", &config.address)
         .env("VIGI_BOOTNODES", &config.bootnodes)
         .stdin(Stdio::null())
-        // Until Core exposes a stable telemetry/IPC contract, avoid leaving unread pipes
-        // attached to a long-running node process. Filled stdout/stderr pipes can block it.
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
