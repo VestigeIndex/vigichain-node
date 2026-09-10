@@ -1,0 +1,39 @@
+name: Vigi Miner CI
+on:
+  pull_request:
+    paths:
+      - 'apps/vigi-miner/**'
+      - '.github/workflows/vigi-miner-ci.yml'
+  push:
+    branches: [feature/vigi-miner-desktop]
+    paths:
+      - 'apps/vigi-miner/**'
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/vigi-miner
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/vigi-miner/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  rust:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/vigi-miner/src-tauri
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Tauri Linux dependencies
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - run: cargo check
+      - run: cargo test compact::tests
