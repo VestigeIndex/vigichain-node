@@ -2,37 +2,36 @@
 
 Native Mission Control for VigiChain mining, node operation and storage control.
 
-## Current capabilities
+## Implemented
 
 - Tauri 2 + Rust backend and React/TypeScript UI.
-- Testnet mining control; Mainnet visible but hard-locked until Core launch.
-- Verified node installer: release signature, signed SHA-256 manifest, signed provenance/source binding and CycloneDX SBOM checks.
-- Reward address only; no seed phrase/private-key handling.
-- Isolated Vigi data/temp directories and cleared inherited environment.
+- Testnet mining; Mainnet visible but fail-closed until Core launch.
+- Verified node installer with release signature, signed SHA-256 manifest, signed provenance/source binding and provenance-bound CycloneDX SBOM.
+- Reward address only; no seed/private-key handling.
+- Isolated Vigi data/temp directories and cleared inherited process environment.
 - Eco / Balanced / Performance / Custom compute profiles.
-- Opt-in read-only discovery of cgminer-compatible hardware on private LANs.
-- In-app Help Center.
-- EN / ES / DE / FR / PT / AR / ZH locale layer with Arabic RTL.
-- Vigi Compact storage surface and lossless `.vgc` container engine.
+- Opt-in read-only discovery of cgminer-compatible devices on private LANs.
+- Help Center and EN / ES / DE / FR / PT / AR / ZH locale layer with Arabic RTL.
+- Vigi Compact 0.1 storage engine and dedicated Mission Control Storage surface.
 
 ## Vigi Compact 0.1
 
-The desktop implementation is intentionally conservative. It operates only on canonical files explicitly supplied to `~/.vigichain/compact/source`, storing verified content-addressed objects in `~/.vigichain/compact/objects`.
+The desktop implementation operates only on canonical files explicitly supplied to `~/.vigichain/compact/source`. Verified objects are content-addressed under `~/.vigichain/compact/objects/<sha256>.vgc`; verified restore output is written to `~/.vigichain/compact/restored`.
 
-Every activated object records canonical length + SHA-256, compresses with Zstandard, immediately round-trips, verifies exact bytes/digest, fsyncs a pending file and atomically renames it. Inputs that do not become smaller are skipped. Declared output length is bounded to mitigate decompression bombs.
+Every accepted object records canonical length + SHA-256, uses Zstandard, immediately round-trips, verifies exact bytes/digest, verifies the content-addressed filename, fsyncs a pending file and atomically renames it. Inputs that do not become smaller are skipped. Safety bounds are 16 GiB per object and 64 GiB per desktop operation.
 
-The Storage UI exposes Automatic / Maximum / Off, Compact now, Restore verified, canonical bytes represented, compact bytes stored, saved bytes, candidate count and verified object count. Verified restores are written under `~/.vigichain/compact/restored`.
+The Storage UI exposes Automatic / Maximum / Off, Compact now, Restore verified, canonical bytes represented, compact bytes stored, saved bytes, candidate count and verified object count.
 
-**This does not yet mutate the private Core database.** Production chain compaction requires the versioned Core IPC contract in `VIGI_COMPACT_CONTRACT.md`; Vigi Miner must never guess the Core persistence format. Compact is not pruning and does not change consensus.
+**Production Core database compaction is deliberately not performed from this public controller repository.** The private Core must implement the versioned local IPC contract in `VIGI_COMPACT_CONTRACT.md`. Vigi Miner must never guess or mutate Core persistence internals. Compact is not pruning and never changes consensus.
 
 ## Security boundaries
 
-- Mainnet fail-closed in UI and backend.
+- Mainnet fail-closed in UI and Rust backend.
 - Hardware discovery requires explicit user action and is read-only.
-- Current process isolation is data/environment isolation, not yet a full kernel sandbox.
-- Power percentage currently maps to mining-thread allocation; OS-native quotas remain a follow-up.
-- Compact has canonical-size bounds, atomic activation and exact restore/hash verification.
+- Current node isolation is data/environment isolation, not yet a full kernel sandbox.
+- Power percentage maps to mining-thread allocation until native OS quotas are implemented.
+- Compact rejects corrupt/truncated/oversized objects and verifies content addressing on restore.
 
 ## Validation
 
-`.github/workflows/vigi-miner-ci.yml` validates the frontend, `cargo check`, and Compact tests. Compact tests cover exact round-trip, corrupted payload rejection, truncated container rejection and oversized declared-output rejection. Keep the PR draft until GitHub Actions actually reports success and the Core telemetry/Compact IPC contracts are implemented by Core.
+`.github/workflows/vigi-miner-ci.yml` contains frontend build, `cargo check` and Compact tests. Compact tests cover exact round-trip, corruption, truncation, declared decompression bomb and content-address naming. The workflow has not yet reported a run through the connector, so this PR remains draft and must not be described as CI-green yet.
