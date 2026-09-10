@@ -6,7 +6,7 @@ Native Mission Control for VigiChain mining, node operation and storage control.
 
 - Tauri 2 + Rust backend and React/TypeScript UI.
 - Testnet mining; Mainnet visible but fail-closed until Core launch.
-- Verified node installer with release signature, signed SHA-256 manifest, signed provenance/source binding and provenance-bound CycloneDX SBOM.
+- Verified node installer with release signature, signed SHA-256 manifest, signed provenance/source binding and provenance-bound non-empty CycloneDX SBOM.
 - Reward address only; no seed/private-key handling.
 - Isolated Vigi data/temp directories and cleared inherited process environment.
 - Eco / Balanced / Performance / Custom compute profiles.
@@ -18,7 +18,7 @@ Native Mission Control for VigiChain mining, node operation and storage control.
 
 The desktop implementation operates only on canonical files explicitly supplied to `~/.vigichain/compact/source`. Verified objects are content-addressed under `~/.vigichain/compact/objects/<sha256>.vgc`; verified restore output is written to `~/.vigichain/compact/restored`.
 
-Every accepted object records canonical length + SHA-256, uses Zstandard, immediately round-trips, verifies exact bytes/digest, verifies the content-addressed filename, fsyncs a pending file and atomically renames it. Inputs that do not become smaller are skipped. Safety bounds are 16 GiB per object and 64 GiB per desktop operation.
+Every accepted object records canonical length + SHA-256, uses one Zstandard frame, immediately round-trips, verifies exact bytes/digest and content-addressed filename, rejects trailing frame data, fsyncs a pending file and atomically renames it. Inputs that do not become smaller are skipped. Safety bounds are 16 GiB per object and 64 GiB per desktop operation.
 
 The Storage UI exposes Automatic / Maximum / Off, Compact now, Restore verified, canonical bytes represented, compact bytes stored, saved bytes, candidate count and verified object count.
 
@@ -30,8 +30,8 @@ The Storage UI exposes Automatic / Maximum / Off, Compact now, Restore verified,
 - Hardware discovery requires explicit user action and is read-only.
 - Current node isolation is data/environment isolation, not yet a full kernel sandbox.
 - Power percentage maps to mining-thread allocation until native OS quotas are implemented.
-- Compact rejects corrupt/truncated/oversized objects and verifies content addressing on restore.
+- Compact rejects corrupt, truncated, oversized, wrongly content-addressed and trailing-data containers.
 
 ## Validation
 
-`.github/workflows/vigi-miner-ci.yml` contains frontend build, `cargo check` and Compact tests. Compact tests cover exact round-trip, corruption, truncation, declared decompression bomb and content-address naming. The workflow has not yet reported a run through the connector, so this PR remains draft and must not be described as CI-green yet.
+`.github/workflows/vigi-miner-ci.yml` contains frontend build, `cargo check` and Compact tests. Compact tests cover exact round-trip, corruption, truncation, declared decompression bomb, content-address naming and trailing-data rejection. The workflow has not yet reported a run through the connector, so this PR remains draft and must not be described as CI-green yet.
