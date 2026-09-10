@@ -1,5 +1,6 @@
 name: Vigi Miner CI
 on:
+  workflow_dispatch:
   pull_request:
     paths: ['apps/vigi-miner/**', '.github/workflows/vigi-miner-ci.yml']
   push:
