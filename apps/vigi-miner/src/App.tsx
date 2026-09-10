@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
-  Archive, Box, CheckCircle2, ChevronDown, CircleGauge, Cpu, Database,
+  Activity, Archive, Box, CheckCircle2, ChevronDown, CircleGauge, Cpu, Database,
   Download, Gauge, HardDrive, Languages, LifeBuoy, LockKeyhole, Microchip,
   Network, Play, RotateCcw, ScanSearch, ServerCog, Settings2, Shield,
   ShieldCheck, SlidersHorizontal, Sparkles, Square, Waves, Zap,
@@ -10,7 +10,7 @@ import { detectLocale, localeNames, supportedLocales, translator, type Locale } 
 
 type NetworkMode = 'testnet' | 'mainnet';
 type PowerProfile = 'eco' | 'balanced' | 'performance' | 'custom';
-type View = 'control' | 'storage' | 'help';
+type View = 'control' | 'telemetry' | 'node' | 'storage' | 'sandbox' | 'help';
 type CompactMode = 'automatic' | 'maximum' | 'off';
 
 type MinerConfig = {
@@ -60,6 +60,18 @@ type CoreTelemetry = {
 };
 type TelemetryState = { available: boolean; endpoint: string; snapshot?: CoreTelemetry | null; reason?: string | null };
 
+type AppData = {
+  network: NetworkMode;
+  running: boolean;
+  pid?: number;
+  system: SystemInfo | null;
+  telemetry: TelemetryState | null;
+  trustedTelemetry: CoreTelemetry | null;
+  telemetryState: string;
+  telemetryNetworkMatch: boolean;
+  compactStats: CompactStats | null;
+};
+
 const profileCpu: Record<PowerProfile, number> = { eco: 35, balanced: 65, performance: 90, custom: 70 };
 const compactModes: CompactMode[] = ['automatic', 'maximum', 'off'];
 const short = (value: string) => value.length > 22 ? `${value.slice(0, 12)}…${value.slice(-8)}` : value;
@@ -70,6 +82,12 @@ const formatHashrate = (value?: number | null) => {
   let n = Math.max(0, value); let i = 0;
   while (n >= 1000 && i < units.length - 1) { n /= 1000; i += 1; }
   return `${n >= 100 ? n.toFixed(0) : n >= 10 ? n.toFixed(1) : n.toFixed(2)} ${units[i]}`;
+};
+const duration = (seconds: number) => {
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return days > 0 ? `${days}d ${hours}h` : hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
 };
 const savedCompactMode = (): CompactMode => {
   const mode = localStorage.getItem('vigi-compact-mode') as CompactMode | null;
@@ -112,6 +130,10 @@ export default function App() {
   const telemetrySnapshot = telemetry?.available ? telemetry.snapshot ?? null : null;
   const telemetryNetworkMatch = !telemetrySnapshot || telemetrySnapshot.network === network;
   const trustedTelemetry = telemetryNetworkMatch ? telemetrySnapshot : null;
+  const telemetryAge = telemetrySeenAt ? Math.max(0, Date.now() - telemetrySeenAt) : null;
+  const telemetryState = !telemetryNetworkMatch ? 'NETWORK MISMATCH'
+    : trustedTelemetry ? (telemetryAge != null && telemetryAge > 5000 ? 'STALE' : 'LIVE')
+      : 'UNAVAILABLE';
 
   useEffect(() => {
     document.documentElement.lang = locale;
@@ -248,41 +270,23 @@ export default function App() {
   }
 
   const networkState = mainnetLocked ? t('locked') : running ? 'MINING' : binaryAvailable ? 'READY' : 'NODE REQUIRED';
-  const storageValue = trustedTelemetry?.storage.compactBytes ?? compactStats?.storedBytes ?? null;
-  const telemetryAge = telemetrySeenAt ? Math.max(0, Date.now() - telemetrySeenAt) : null;
-  const telemetryState = !telemetryNetworkMatch ? 'NETWORK MISMATCH'
-    : trustedTelemetry ? (telemetryAge != null && telemetryAge > 5000 ? 'STALE' : 'LIVE')
-      : 'UNAVAILABLE';
+  const appData: AppData = { network, running, pid, system, telemetry, trustedTelemetry, telemetryState, telemetryNetworkMatch, compactStats };
 
   return (
     <div className="mission-shell">
       <Sidebar view={view} setView={setView} t={t} />
       <main className="mission-main">
-        <div className="utility-bar">
-          <div className={`telemetry-badge ${telemetryState.toLowerCase().replace(' ', '-')}`}>
-            <span className="telemetry-led" /> CORE TELEMETRY · {telemetryState}
-          </div>
-          <div className="locale-select">
-            <Languages size={14} />
-            <select value={locale} onChange={(e) => setLocale(e.target.value as Locale)}>
-              {supportedLocales.map((code) => <option key={code} value={code}>{localeNames[code]}</option>)}
-            </select>
-            <ChevronDown size={12} />
-          </div>
-        </div>
+        <TopBar locale={locale} setLocale={setLocale} telemetryState={telemetryState} />
 
-        {view === 'help' ? <HelpCenter t={t} /> : view === 'storage' ? (
-          <StorageView t={t} mode={compactMode} stats={compactStats} advice={compactAdvice}
-            result={compactResult} restore={restoreResult} busy={compacting}
-            onMode={chooseCompact} onRun={runCompact} onRestore={restoreCompact} />
-        ) : (
+        {view === 'help' && <HelpCenter t={t} />}
+        {view === 'telemetry' && <TelemetryView data={appData} />}
+        {view === 'node' && <NodeView data={appData} binaryAvailable={binaryAvailable} />}
+        {view === 'sandbox' && <SandboxView system={system} cpuLimitPercent={cpuLimitPercent} />}
+        {view === 'storage' && <StorageView t={t} mode={compactMode} stats={compactStats} advice={compactAdvice} result={compactResult} restore={restoreResult} busy={compacting} onMode={chooseCompact} onRun={runCompact} onRestore={restoreCompact} />}
+        {view === 'control' && (
           <>
             <header className="mission-header">
-              <div>
-                <p className="eyebrow">{t('missionEyebrow')}</p>
-                <h1>{t('title')}</h1>
-                <p className="lede">{t('lede')}</p>
-              </div>
+              <div><p className="eyebrow">{t('missionEyebrow')}</p><h1>{t('title')}</h1><p className="lede">{t('lede')}</p></div>
               <div className={`network-pill ${mainnetLocked ? 'locked' : ''}`}><span className="pulse" />{network.toUpperCase()} · {networkState}</div>
             </header>
 
@@ -307,13 +311,8 @@ export default function App() {
 
               <div className="telemetry-stack">
                 <div className="telemetry-hero"><div className="telemetry-head"><span>{t('computeEnvelope')}</span><SlidersHorizontal /></div><strong>{cpuLimitPercent}%</strong><small>{threads} / {maxThreads} {t('logicalCpus')} · OS constrained</small><div className="power-track"><span style={{ width: `${cpuLimitPercent}%` }} /></div></div>
-                <div className="telemetry-row">
-                  <Metric icon={<Gauge />} label="Hashrate" value={trustedTelemetry ? formatHashrate(trustedTelemetry.mining.hashrateHs) : running ? '—' : 'Idle'} />
-                  <Metric icon={<Network />} label="Peers" value={trustedTelemetry ? String(trustedTelemetry.p2p.authenticatedPeers) : '—'} />
-                  <Metric icon={<Box />} label="Height" value={trustedTelemetry ? trustedTelemetry.sync.height.toLocaleString() : '—'} />
-                  <Metric icon={<HardDrive />} label="Storage" value={storageValue != null ? gb(storageValue) : '—'} />
-                </div>
-                {trustedTelemetry && <div className="sync-surface"><div><span>SYNC</span><strong>{(trustedTelemetry.sync.progress * 100).toFixed(2)}%</strong></div><div className="sync-track"><span style={{ width: `${Math.min(100, Math.max(0, trustedTelemetry.sync.progress * 100))}%` }} /></div><small>{trustedTelemetry.nodeVersion} · uptime {Math.floor(trustedTelemetry.uptimeSeconds / 60)} min · {trustedTelemetry.mining.blocksFoundSession} blocks this session</small></div>}
+                <LiveMetrics telemetry={trustedTelemetry} running={running} compactStats={compactStats} />
+                {trustedTelemetry && <SyncSurface telemetry={trustedTelemetry} />}
                 <div className="security-surface"><ShieldCheck /><div><strong>{system?.containmentLevel ?? t('privacyBoundary')}</strong><span>{system?.containmentDetail ?? t('privacyBody')}</span></div></div>
               </div>
             </section>
@@ -336,8 +335,21 @@ export default function App() {
   );
 }
 
+function TopBar({ locale, setLocale, telemetryState }: { locale: Locale; setLocale: (locale: Locale) => void; telemetryState: string }) {
+  const cssState = telemetryState.toLowerCase().replaceAll(' ', '-');
+  return <div className="utility-bar"><div className={`telemetry-badge ${cssState}`}><span className="telemetry-led" />CORE TELEMETRY · {telemetryState}</div><div className="locale-select"><Languages size={14} /><select value={locale} onChange={(e) => setLocale(e.target.value as Locale)}>{supportedLocales.map((code) => <option key={code} value={code}>{localeNames[code]}</option>)}</select><ChevronDown size={12} /></div></div>;
+}
+
 function Sidebar({ view, setView, t }: { view: View; setView: (view: View) => void; t: (key: string) => string }) {
-  return <aside className="rail"><div className="brand-cluster"><div className="brand-core"><Zap size={18} /></div><strong>Vigi Miner</strong><span>Mission Control</span></div><div className="rail-nav"><button className={`rail-item ${view === 'control' ? 'active' : ''}`} onClick={() => setView('control')}><CircleGauge /><span>{t('control')}</span></button><button className="rail-item"><Waves /><span>{t('telemetry')}</span></button><button className="rail-item"><ServerCog /><span>{t('node')}</span></button><button className={`rail-item ${view === 'storage' ? 'active' : ''}`} onClick={() => setView('storage')}><Archive /><span>{t('storage')}</span></button><button className="rail-item"><Shield /><span>{t('sandbox')}</span></button><button className={`rail-item ${view === 'help' ? 'active' : ''}`} onClick={() => setView('help')}><LifeBuoy /><span>{t('help')}</span></button></div><div className="rail-foot"><div className="privacy-chip"><ShieldCheck /><span>{t('sandboxEnforced')}</span></div></div></aside>;
+  const nav: Array<[View, ReactNode, string]> = [
+    ['control', <CircleGauge key="control" />, t('control')],
+    ['telemetry', <Waves key="telemetry" />, t('telemetry')],
+    ['node', <ServerCog key="node" />, t('node')],
+    ['storage', <Archive key="storage" />, t('storage')],
+    ['sandbox', <Shield key="sandbox" />, t('sandbox')],
+    ['help', <LifeBuoy key="help" />, t('help')],
+  ];
+  return <aside className="rail"><div className="brand-cluster"><div className="brand-core"><Zap size={18} /></div><strong>Vigi Miner</strong><span>Mission Control</span></div><div className="rail-nav">{nav.map(([id, icon, label]) => <button key={id} className={`rail-item ${view === id ? 'active' : ''}`} onClick={() => setView(id)}>{icon}<span>{label}</span></button>)}</div><div className="rail-foot"><div className="privacy-chip"><ShieldCheck /><span>{t('sandboxEnforced')}</span></div></div></aside>;
 }
 
 function NetworkTile({ selected, disabled, title, subtitle, badge, live, onClick }: { selected: boolean; disabled: boolean; title: string; subtitle: string; badge: string; live?: boolean; onClick: () => void }) {
@@ -348,8 +360,52 @@ function Metric({ icon, label, value }: { icon: ReactNode; label: string; value:
   return <div className="telemetry-card"><div>{icon}<span>{label}</span></div><strong>{value}</strong></div>;
 }
 
+function LiveMetrics({ telemetry, running, compactStats }: { telemetry: CoreTelemetry | null; running: boolean; compactStats: CompactStats | null }) {
+  const storage = telemetry?.storage.compactBytes ?? compactStats?.storedBytes ?? null;
+  return <div className="telemetry-row"><Metric icon={<Gauge />} label="Hashrate" value={telemetry ? formatHashrate(telemetry.mining.hashrateHs) : running ? '—' : 'Idle'} /><Metric icon={<Network />} label="Peers" value={telemetry ? String(telemetry.p2p.authenticatedPeers) : '—'} /><Metric icon={<Box />} label="Height" value={telemetry ? telemetry.sync.height.toLocaleString() : '—'} /><Metric icon={<HardDrive />} label="Storage" value={storage != null ? gb(storage) : '—'} /></div>;
+}
+
+function SyncSurface({ telemetry }: { telemetry: CoreTelemetry }) {
+  const progress = Math.min(100, Math.max(0, telemetry.sync.progress * 100));
+  return <div className="sync-surface"><div><span>SYNC</span><strong>{progress.toFixed(2)}%</strong></div><div className="sync-track"><span style={{ width: `${progress}%` }} /></div><small>{telemetry.nodeVersion} · uptime {duration(telemetry.uptimeSeconds)} · {telemetry.mining.blocksFoundSession} blocks this session</small></div>;
+}
+
 function HardwarePanel({ t, scanned, scanning, devices, onDetect }: { t: (key: string) => string; scanned: boolean; scanning: boolean; devices: MiningDevice[]; onDetect: () => void }) {
   return <section className="control-plane"><div className="control-plane-head"><div><p className="eyebrow">HARDWARE DISCOVERY</p><h2>{t('hardwareTitle')}</h2><p className="lede">{t('hardwareBody')}</p></div><button className="ghost" onClick={onDetect} disabled={scanning}><ScanSearch />{scanning ? t('scanning') : t('detectHardware')}</button></div>{!scanned ? <div className="permission-note"><ShieldCheck /><span>{t('permissionReadOnly')}</span></div> : devices.length === 0 ? <div className="empty-hardware"><Microchip /><span>{t('noHardware')}</span></div> : <div className="device-grid">{devices.map((device) => <div className="device-card" key={device.host}><Microchip /><strong>{device.identity}</strong><span>{device.host} · {device.protocol}</span><em>{device.compatibility}</em></div>)}</div>}</section>;
+}
+
+function TelemetryView({ data }: { data: AppData }) {
+  const live = data.trustedTelemetry;
+  return <><header className="mission-header"><div><p className="eyebrow">VIGICHAIN / OBSERVABILITY</p><h1>Telemetry without guesswork.</h1><p className="lede">Read-only Core signals are accepted only from the local telemetry contract. Missing data remains unknown instead of being fabricated.</p></div><div className={`network-pill ${data.telemetryState !== 'LIVE' ? 'locked' : ''}`}><Activity size={14} />{data.telemetryState}</div></header>
+    {!data.telemetryNetworkMatch && <div className="telemetry-warning">The Core is reporting a different network. Mission Control refuses to mix metrics across networks.</div>}
+    <section className="telemetry-matrix"><Metric icon={<Gauge />} label="Hashrate" value={live ? formatHashrate(live.mining.hashrateHs) : '—'} /><Metric icon={<Network />} label="Authenticated peers" value={live ? String(live.p2p.authenticatedPeers) : '—'} /><Metric icon={<Box />} label="Current height" value={live ? live.sync.height.toLocaleString() : '—'} /><Metric icon={<Archive />} label="Blocks found" value={live ? String(live.mining.blocksFoundSession) : '—'} /><Metric icon={<Waves />} label="Inbound peers" value={live ? String(live.p2p.inboundPeers) : '—'} /><Metric icon={<Waves />} label="Outbound peers" value={live ? String(live.p2p.outboundPeers) : '—'} /><Metric icon={<Cpu />} label="Mining threads" value={live ? String(live.mining.threads) : '—'} /><Metric icon={<HardDrive />} label="Canonical storage" value={live?.storage.canonicalBytes != null ? gb(live.storage.canonicalBytes) : '—'} /></section>
+    <section className="control-plane telemetry-detail"><div className="control-plane-head"><div><p className="eyebrow">CORE CONTRACT</p><h2>{live ? `${live.nodeVersion} · schema v${live.schemaVersion}` : 'Core telemetry unavailable'}</h2></div><span className="readonly-chip">{data.telemetry?.endpoint ?? 'loopback only'}</span></div>{live ? <><SyncSurface telemetry={live} /><div className="detail-grid"><Detail label="Network" value={live.network.toUpperCase()} /><Detail label="Uptime" value={duration(live.uptimeSeconds)} /><Detail label="Reward address" value={short(live.mining.rewardAddress)} /><Detail label="Mining" value={live.mining.enabled ? 'ENABLED' : 'DISABLED'} /></div></> : <div className="empty-hardware"><Activity /><span>{data.telemetry?.reason ?? 'Waiting for the private Core telemetry producer.'}</span></div>}</section></>;
+}
+
+function NodeView({ data, binaryAvailable }: { data: AppData; binaryAvailable: boolean }) {
+  const live = data.trustedTelemetry;
+  return <><header className="mission-header"><div><p className="eyebrow">VIGICHAIN / NODE</p><h1>The daemon remains authoritative.</h1><p className="lede">Vigi Miner supervises the signed node process. Consensus stays inside VigiChain Core.</p></div><div className={`network-pill ${data.running ? '' : 'locked'}`}><ServerCog size={14} />{data.running ? 'RUNNING' : binaryAvailable ? 'READY' : 'NOT INSTALLED'}</div></header>
+    <section className="node-grid"><div className="node-core-card"><div className={`core-ring ${data.running ? 'live' : ''}`}><div className="core-ring-inner"><ServerCog /></div></div><div><span>PROCESS</span><strong>{data.running ? `PID ${data.pid ?? '—'}` : 'Stopped'}</strong><small>{data.system?.containmentLevel ?? 'containment unknown'}</small></div></div><DetailCard label="Network" value={live?.network.toUpperCase() ?? data.network.toUpperCase()} sub="Mainnet launch gate remains Core-owned" /><DetailCard label="Node version" value={live?.nodeVersion ?? 'Awaiting telemetry'} sub={data.system?.architecture ?? 'unknown architecture'} /><DetailCard label="Binary" value={binaryAvailable ? 'VERIFIED PATH READY' : 'MISSING'} sub={data.system?.nodeBinaryPath ?? 'Install a signed VigiChain release'} /></section>
+    <section className="control-plane"><p className="eyebrow">LOCAL BINARY</p><h2>Execution boundary</h2><div className="detail-grid"><Detail label="Operating system" value={data.system?.operatingSystem ?? '—'} /><Detail label="Architecture" value={data.system?.architecture ?? '—'} /><Detail label="Logical CPUs" value={String(data.system?.logicalCpus ?? '—')} /><Detail label="Containment" value={data.system?.containmentLevel ?? '—'} /></div>{data.system?.nodeBinaryPath && <div className="compact-path"><span>Verified node path</span><code>{data.system.nodeBinaryPath}</code></div>}</section></>;
+}
+
+function SandboxView({ system, cpuLimitPercent }: { system: SystemInfo | null; cpuLimitPercent: number }) {
+  const windows = system?.operatingSystem === 'windows';
+  return <><header className="mission-header"><div><p className="eyebrow">VIGI MINER / SECURITY BOUNDARY</p><h1>Isolation is a measurable capability.</h1><p className="lede">Mission Control reports what the operating system actually enforces. It does not label a private directory as a full sandbox.</p></div><div className="network-pill"><ShieldCheck size={14} />{system?.containmentLevel?.toUpperCase() ?? 'CHECKING'}</div></header>
+    <section className="security-grid"><SecurityStep state="ENFORCED" title="Private Vigi directories" body="Node data and temporary files are kept inside the Vigi execution root." /><SecurityStep state="ENFORCED" title="Cleared parent environment" body="The node does not inherit arbitrary application/session secrets." /><SecurityStep state="ENFORCED" title={windows ? 'Windows Job Object' : 'No-new-privileges'} body={windows ? `The process tree is contained and receives a ${cpuLimitPercent}% hard CPU-rate cap.` : 'Privilege escalation through exec is disabled and core dumps are blocked.'} /><SecurityStep state="NEXT HARDENING" title={windows ? 'AppContainer filesystem/network policy' : 'Namespace + seccomp filesystem/network policy'} body="This stronger confinement is deliberately not claimed as active yet." /></section>
+    <section className="control-plane"><p className="eyebrow">CURRENT CAPABILITY</p><h2>{system?.containmentLevel ?? 'Detecting…'}</h2><p className="lede">{system?.containmentDetail ?? 'Reading local containment capability.'}</p></section></>;
+}
+
+function SecurityStep({ state, title, body }: { state: string; title: string; body: string }) {
+  return <article className={`security-step ${state === 'ENFORCED' ? 'enforced' : 'future'}`}><span>{state}</span><ShieldCheck /><h2>{title}</h2><p>{body}</p></article>;
+}
+
+function DetailCard({ label, value, sub }: { label: string; value: string; sub: string }) {
+  return <article className="detail-card"><span>{label}</span><strong>{value}</strong><small>{sub}</small></article>;
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return <div className="detail-item"><span>{label}</span><strong>{value}</strong></div>;
 }
 
 function StorageView({ t, mode, stats, advice, result, restore, busy, onMode, onRun, onRestore }: { t: (key: string) => string; mode: CompactMode; stats: CompactStats | null; advice: CompactAdvice | null; result: CompactRun | null; restore: RestoreRun | null; busy: boolean; onMode: (mode: CompactMode) => void; onRun: () => void; onRestore: () => void }) {
