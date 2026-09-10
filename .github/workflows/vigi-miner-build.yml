@@ -2,6 +2,11 @@ name: Vigi Miner portable builds
 
 on:
   workflow_dispatch:
+  push:
+    branches: [feature/vigi-miner-desktop]
+    paths:
+      - 'apps/vigi-miner/**'
+      - '.github/workflows/vigi-miner-build.yml'
   pull_request:
     paths:
       - 'apps/vigi-miner/**'
@@ -44,5 +49,24 @@ jobs:
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.binary }}
+          if-no-files-found: error
+          retention-days: 7
+
+      # The portable executable is what a developer runs; an installer is what a person
+      # double-clicks. Building it needs the icon set that `build.rs` now generates — before this,
+      # the bundler had a single .ico and nothing else, which is why only `--no-bundle` was ever
+      # attempted here.
+      - name: Build installers
+        run: npm run tauri -- build
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-installers
+          path: |
+            apps/vigi-miner/src-tauri/target/release/bundle/**/*.msi
+            apps/vigi-miner/src-tauri/target/release/bundle/**/*.exe
+            apps/vigi-miner/src-tauri/target/release/bundle/**/*.deb
+            apps/vigi-miner/src-tauri/target/release/bundle/**/*.rpm
+            apps/vigi-miner/src-tauri/target/release/bundle/**/*.AppImage
           if-no-files-found: error
           retention-days: 7

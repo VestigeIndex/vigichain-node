@@ -1,0 +1,78 @@
+/* Mission Control on a real laptop.
+   ============================================================================
+   The interface was written for a wide desktop: `body` carried `min-width:1024px`
+   together with `overflow-x:hidden`, which is the combination that hides a
+   problem instead of showing it. On a 1536x864 panel at 150 % scale the viewport
+   is under a thousand CSS pixels, the layout stayed wider than that, and the
+   right-hand column — compute envelope, hashrate, height, storage — was simply
+   cut off the screen with no scrollbar to reach it. A miner could not see the
+   numbers the application exists to report.
+
+   So the shell becomes fluid instead of fixed. The columns fold in a defined
+   order (secondary panels first, the command surface last), the rail narrows
+   before it disappears, and nothing is ever clipped: what does not fit stacks.
+
+   Loaded last, so it corrects the earlier sheets without rewriting them.
+   ========================================================================== */
+
+body{
+  min-width:0!important;
+  overflow-x:auto;
+}
+
+/* Wide desktop, but not enormous: the two-column command surface still holds,
+   the paddings come in so the content is not pressed against the frame. */
+@media (max-width:1440px){
+  .mission-main{padding:30px 30px 20px}
+  .command-grid{grid-template-columns:minmax(0,1.15fr) minmax(340px,.85fr)}
+  h1{font-size:clamp(30px,3.1vw,46px)}
+}
+
+/* Below this the second column no longer has room to be a column. */
+@media (max-width:1240px){
+  .command-grid{grid-template-columns:minmax(0,1fr)}
+  .telemetry-stack{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start}
+  .telemetry-stack .telemetry-row{grid-column:1/-1}
+  .telemetry-matrix{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .node-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .security-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .detail-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .compact-hero{grid-template-columns:200px minmax(0,1fr);gap:22px}
+}
+
+/* Laptop territory: 1366x768 at 100 %, or 1536x864 at 150 %. */
+@media (max-width:1080px){
+  .mission-shell{grid-template-columns:78px minmax(0,1fr)}
+  .mission-main{padding:24px 22px 18px}
+  h1{font-size:clamp(26px,3.4vw,38px);max-width:none}
+  .lede{max-width:none;font-size:11px}
+  .network-deck{max-width:none}
+  .profile-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .custom-power{grid-template-columns:minmax(0,1fr);gap:12px}
+  .advanced-grid{grid-template-columns:minmax(0,1fr)}
+  .help-center{margin-top:30px}
+  .help-grid{grid-template-columns:minmax(0,1fr)}
+  .device-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .compact-hero{grid-template-columns:minmax(0,1fr);gap:18px}
+  .compact-orbit{margin:0 auto}
+}
+
+/* Narrow: everything is one column, and the rail keeps only its icons. */
+@media (max-width:860px){
+  .mission-shell{grid-template-columns:62px minmax(0,1fr)}
+  .rail-item span{display:none}
+  .brand-cluster strong,.brand-cluster span{display:none}
+  .mission-main{padding:20px 16px 16px}
+  .telemetry-stack{grid-template-columns:minmax(0,1fr)}
+  .telemetry-row{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .telemetry-matrix,.node-grid,.security-grid,.detail-grid,.device-grid{grid-template-columns:minmax(0,1fr)}
+  .network-deck{grid-template-columns:minmax(0,1fr)}
+  .profile-grid{grid-template-columns:minmax(0,1fr)}
+  .utility-bar{flex-wrap:wrap;height:auto;gap:8px}
+}
+
+/* Grid children default to min-width:auto, which is what lets a long address or a
+   wide table push a column past the frame. Nothing here is allowed to do that. */
+.mission-main,.command-grid>*,.telemetry-stack>*,.node-grid>*,.detail-grid>*,
+.security-grid>*,.device-grid>*,.help-grid>*,.telemetry-matrix>*{min-width:0}
+.address-input input,.readonly-box,.compact-path code{min-width:0;max-width:100%}

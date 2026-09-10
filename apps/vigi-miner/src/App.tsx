@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
-  Activity, Archive, Box, CheckCircle2, ChevronDown, CircleGauge, Cpu, Database,
+  Activity, Archive, Box, CheckCircle2, CircleGauge, Cpu, Database,
   Download, Gauge, HardDrive, Languages, LifeBuoy, LockKeyhole, Microchip,
   Network, Play, RotateCcw, ScanSearch, ServerCog, Settings2, Shield,
   ShieldCheck, SlidersHorizontal, Sparkles, Square, Waves, Zap,
 } from 'lucide-react';
 import { detectLocale, localeNames, supportedLocales, translator, type Locale } from './i18n';
+import { DialSlider, MenuSelect } from './controls';
 
 type NetworkMode = 'testnet' | 'mainnet';
 type PowerProfile = 'eco' | 'balanced' | 'performance' | 'custom';
@@ -320,7 +321,7 @@ export default function App() {
             <section className="control-plane">
               <div className="control-plane-head"><div><p className="eyebrow">{t('powerManagement')}</p><h2>{t('powerTitle')}</h2></div><button className="ghost" onClick={() => setAdvanced(!advanced)}><Settings2 />{t('advanced')}</button></div>
               <div className="profile-grid">{(['eco', 'balanced', 'performance', 'custom'] as PowerProfile[]).map((profile) => <button key={profile} className={powerProfile === profile ? 'profile-card selected' : 'profile-card'} onClick={() => setPowerProfile(profile)}><span>{profile === 'eco' ? '35%' : profile === 'balanced' ? '65%' : profile === 'performance' ? '90%' : '↔'}</span><strong>{t(profile)}</strong><small>{t(`${profile}Body`)}</small></button>)}</div>
-              {powerProfile === 'custom' && <div className="custom-power"><div><strong>{t('cpuLimit')}</strong></div><div className="slider-shell"><input type="range" min="10" max="100" step="5" value={cpuLimitPercent} onChange={(e) => setCpuLimitPercent(Number(e.target.value))} /><b>{cpuLimitPercent}%</b></div></div>}
+              {powerProfile === 'custom' && <div className="custom-power"><div><strong>{t('cpuLimit')}</strong></div><div className="slider-shell"><DialSlider value={cpuLimitPercent} min={10} max={100} step={5} onChange={setCpuLimitPercent} label={t('cpuLimit')} /></div></div>}
               {advanced && <div className="advanced-grid"><div><label>Bootnode</label><input value={bootnodes} onChange={(e) => setBootnodes(e.target.value)} /></div>{system?.nodeBinaryPath && <div><label>Verified node</label><div className="readonly-box mono">{system.nodeBinaryPath}</div></div>}</div>}
             </section>
 
@@ -337,7 +338,7 @@ export default function App() {
 
 function TopBar({ locale, setLocale, telemetryState }: { locale: Locale; setLocale: (locale: Locale) => void; telemetryState: string }) {
   const cssState = telemetryState.toLowerCase().replaceAll(' ', '-');
-  return <div className="utility-bar"><div className={`telemetry-badge ${cssState}`}><span className="telemetry-led" />CORE TELEMETRY · {telemetryState}</div><div className="locale-select"><Languages size={14} /><select value={locale} onChange={(e) => setLocale(e.target.value as Locale)}>{supportedLocales.map((code) => <option key={code} value={code}>{localeNames[code]}</option>)}</select><ChevronDown size={12} /></div></div>;
+  return <div className="utility-bar"><div className={`telemetry-badge ${cssState}`}><span className="telemetry-led" />CORE TELEMETRY · {telemetryState}</div><MenuSelect<Locale> value={locale} onChange={setLocale} icon={<Languages size={14} />} label="Interface language" options={supportedLocales.map((code) => ({ value: code, label: localeNames[code], hint: code.toUpperCase() }))} /></div>;
 }
 
 function Sidebar({ view, setView, t }: { view: View; setView: (view: View) => void; t: (key: string) => string }) {
