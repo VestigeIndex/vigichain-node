@@ -16,7 +16,7 @@ Native Mission Control for VigiChain mining, node operation and storage control.
 
 ## Vigi Compact 0.1
 
-The desktop implementation operates only on canonical files explicitly supplied to `~/.vigichain/compact/source`. Verified objects are content-addressed under `~/.vigichain/compact/objects/<sha256>.vgc`; verified restore output is written to `~/.vigichain/compact/restored`.
+The desktop implementation operates only on canonical regular files explicitly supplied to `~/.vigichain/compact/source`; symbolic links are rejected. Verified objects are content-addressed under `~/.vigichain/compact/objects/<sha256>.vgc`; verified restore output is written to `~/.vigichain/compact/restored`.
 
 Every accepted object records canonical length + SHA-256, uses Zstandard, immediately round-trips, verifies exact bytes/digest and content-addressed filename, fsyncs a pending file and atomically renames it. Inputs that do not become smaller are skipped. Safety bounds are 16 GiB per object and 64 GiB per desktop operation.
 
@@ -30,7 +30,7 @@ The Storage UI exposes Automatic / Maximum / Off, Compact now, Restore verified,
 - Hardware discovery requires explicit user action and is read-only.
 - Current node isolation is data/environment isolation, not yet a full kernel sandbox.
 - Power percentage maps to mining-thread allocation until native OS quotas are implemented.
-- Compact rejects corrupt, truncated, oversized and wrongly content-addressed objects.
+- Compact rejects corrupt, truncated, oversized, wrongly content-addressed and symlinked objects.
 
 ## Validation
 
