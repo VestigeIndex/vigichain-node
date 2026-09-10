@@ -22,3 +22,6 @@ minisign-verify = "0.2.5"
 local-ip-address = "0.6"
 zstd = "0.13"
 fs2 = "0.4"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
