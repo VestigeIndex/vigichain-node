@@ -18,7 +18,7 @@ Native Mission Control for VigiChain mining, node operation and storage control.
 
 The desktop implementation operates only on canonical regular files explicitly supplied to `~/.vigichain/compact/source`; symbolic links are rejected. Verified objects are content-addressed under `~/.vigichain/compact/objects/<sha256>.vgc`; verified restore output is written to `~/.vigichain/compact/restored`.
 
-Every accepted object records canonical length + SHA-256, uses Zstandard, immediately round-trips, verifies exact bytes/digest and content-addressed filename, fsyncs a pending file and atomically renames it. Crash-leftover `.pending` files are never treated as verified objects and are cleaned before replacement. Inputs that do not become smaller are skipped. Safety bounds are 16 GiB per canonical object, a bounded container size, and 64 GiB aggregate per desktop inventory/compact/restore operation.
+Every accepted object records canonical length + SHA-256, uses Zstandard, immediately round-trips, verifies exact bytes/digest and content-addressed filename, fsyncs a pending file and atomically renames it. Crash-leftover `.pending` files are never treated as verified objects. Restore refuses unsafe/mismatched existing targets rather than overwriting them. Inputs that do not become smaller are skipped. Safety bounds are 16 GiB per canonical object, bounded container input, and 64 GiB aggregate per desktop inventory/compact/restore operation.
 
 The Storage UI exposes Automatic / Maximum / Off, Compact now, Restore verified, canonical bytes represented, compact bytes stored, saved bytes, candidate count and verified object count.
 
