@@ -1,0 +1,81 @@
+use serde::Serialize;
+use sha2::{Digest, Sha256};
+use std::{fs, io::{Read, Write}, path::{Path, PathBuf}};
+
+const MAGIC: &[u8;4] = b"VGC1";
+const VERSION: u8 = 1;
+const MAX_CANONICAL_BYTES: u64 = 16 * 1024 * 1024 * 1024;
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all="camelCase")]
+pub struct CompactStats {
+    pub source_bytes: u64,
+    pub stored_bytes: u64,
+    pub saved_bytes: u64,
+    pub objects: usize,
+    pub verified_objects: usize,
+    pub source_candidates: usize,
+    pub mode: String,
+    pub source_directory: String,
+    pub compact_directory: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all="camelCase")]
+pub struct CompactRunResult {
+    pub objects_compacted: usize,
+    pub source_bytes: u64,
+    pub stored_bytes: u64,
+    pub saved_bytes: u64,
+    pub verified: bool,
+}
+
+fn roots(home: &Path) -> Result<(PathBuf,PathBuf),String> {
+    let root=home.join("compact"); let source=root.join("source"); let objects=root.join("objects");
+    fs::create_dir_all(&source).map_err(|e| e.to_string())?;
+    fs::create_dir_all(&objects).map_err(|e| e.to_string())?;
+    Ok((source,objects))
+}
+fn hex(bytes:&[u8])->String { bytes.iter().map(|b| format!("{b:02x}")).collect() }
+fn digest(data:&[u8])->[u8;32] { Sha256::digest(data).into() }
+fn walk_files(dir:&Path)->Result<Vec<PathBuf>,String>{
+    let mut out=Vec::new();
+    for e in fs::read_dir(dir).map_err(|e|e.to_string())? { let p=e.map_err(|e|e.to_string())?.path(); if p.is_file(){out.push(p)} }
+    out.sort(); Ok(out)
+}
+fn encode(data:&[u8], level:i32)->Result<Vec<u8>,String>{
+    let compressed=zstd::stream::encode_all(data,level).map_err(|e|e.to_string())?;
+    let mut out=Vec::with_capacity(4+1+8+32+compressed.len()); out.extend_from_slice(MAGIC); out.push(VERSION);
+    out.extend_from_slice(&(data.len() as u64).to_le_bytes()); out.extend_from_slice(&digest(data)); out.extend_from_slice(&compressed); Ok(out)
+}
+fn decode(container:&[u8])->Result<Vec<u8>,String>{
+    if container.len()<45 || &container[..4]!=MAGIC || container[4]!=VERSION {return Err("Invalid Vigi Compact container".into())}
+    let len=u64::from_le_bytes(container[5..13].try_into().unwrap()); if len>MAX_CANONICAL_BYTES{return Err("Compact object exceeds safety limit".into())}
+    let expected:&[u8]=&container[13..45];
+    let mut decoder=zstd::stream::read::Decoder::new(&container[45..]).map_err(|e|e.to_string())?;
+    let mut data=Vec::with_capacity((len.min(64*1024*1024)) as usize); decoder.take(len+1).read_to_end(&mut data).map_err(|e|e.to_string())?;
+    if data.len() as u64!=len{return Err("Canonical length mismatch".into())}
+    if digest(&data).as_slice()!=expected{return Err("Canonical SHA-256 mismatch".into())} Ok(data)
+}
+fn object_path(objects:&Path,data:&[u8])->PathBuf { objects.join(format!("{}.vgc",hex(&digest(data)))) }
+
+pub fn stats(home:&Path, mode:&str)->Result<CompactStats,String>{
+    let (source,objects)=roots(home)?; let candidates=walk_files(&source)?; let compact=walk_files(&objects)?;
+    let source_bytes=candidates.iter().map(|p|fs::metadata(p).map(|m|m.len()).unwrap_or(0)).sum();
+    let mut canonical=0u64; let mut stored=0u64; let mut verified=0usize;
+    for p in &compact { if let Ok(raw)=fs::read(p) { stored+=raw.len() as u64; if let Ok(data)=decode(&raw){canonical+=data.len() as u64;verified+=1;} } }
+    Ok(CompactStats{source_bytes:canonical.max(source_bytes),stored_bytes:stored,saved_bytes:canonical.saturating_sub(stored),objects:compact.len(),verified_objects:verified,source_candidates:candidates.len(),mode:mode.into(),source_directory:source.display().to_string(),compact_directory:objects.display().to_string()})
+}
+
+pub fn compact_now(home:&Path, mode:&str)->Result<CompactRunResult,String>{
+    if mode=="off" {return Err("Vigi Compact is disabled".into())}
+    let (source,objects)=roots(home)?; let level=if mode=="maximum"{15}else{6}; let mut n=0; let mut src=0; let mut stored=0;
+    for p in walk_files(&source)? { let data=fs::read(&p).map_err(|e|e.to_string())?; if data.is_empty(){continue} if data.len() as u64>MAX_CANONICAL_BYTES{return Err(format!("{} exceeds compact safety limit",p.display()))}
+        let encoded=encode(&data,level)?; let restored=decode(&encoded)?; if restored!=data{return Err("Round-trip verification failed".into())}
+        let target=object_path(&objects,&data); if !target.exists(){ let pending=target.with_extension("vgc.pending"); let mut f=fs::File::create(&pending).map_err(|e|e.to_string())?; f.write_all(&encoded).map_err(|e|e.to_string())?; f.sync_all().map_err(|e|e.to_string())?; fs::rename(&pending,&target).map_err(|e|e.to_string())?; }
+        n+=1; src+=data.len() as u64; stored+=encoded.len() as u64;
+    }
+    Ok(CompactRunResult{objects_compacted:n,source_bytes:src,stored_bytes:stored,saved_bytes:src.saturating_sub(stored),verified:true})
+}
+
+#[cfg(test)] mod tests { use super::*; #[test] fn round_trip(){let data=b"vigi".repeat(10000);let c=encode(&data,6).unwrap();assert_eq!(decode(&c).unwrap(),data);} #[test] fn rejects_corruption(){let data=b"chain".repeat(1000);let mut c=encode(&data,6).unwrap();let i=c.len()-1;c[i]^=1;assert!(decode(&c).is_err());} }
