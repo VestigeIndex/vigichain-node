@@ -9,11 +9,12 @@ Vigi Compact is a lossless local storage layer for VigiChain. It is **not prunin
 3. Compression never changes block hashes, TXIDs, Merkle roots, signatures, PoW inputs or consensus rules.
 4. Each object is bound to canonical byte length and SHA-256.
 5. The object filename is content-addressed by the same canonical SHA-256 and verified on stats/restore.
-6. Decompression is bounded: 16 GiB per object and 64 GiB per desktop operation in v0.1.
-7. Activation uses pending file + fsync + atomic rename only after immediate round-trip verification.
-8. Corruption, truncation, digest mismatch and oversized declared output fail closed.
-9. Objects that would become larger after compression are skipped.
-10. Compact != prune. v0.1 deletes no historical information.
+6. Decompression/resource use is bounded: 16 GiB per canonical object, bounded container input, and 64 GiB aggregate per desktop operation in v0.1.
+7. Source/object symbolic links are rejected; source/container length is checked around reads to reduce path/race surprises.
+8. Activation uses a clean pending file + fsync + atomic rename only after immediate round-trip verification.
+9. Corruption, truncation, digest mismatch and oversized declared output fail closed.
+10. Objects that would become larger after compression are skipped.
+11. Compact != prune. v0.1 deletes no historical information.
 
 ## Implemented desktop prototype
 
