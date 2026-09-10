@@ -36,6 +36,6 @@ pub fn apply_baseline(command:&mut Command,paths:&SandboxPaths){
 
 pub fn capability()->(&'static str,&'static str){
     #[cfg(unix)]{return ("os-constrained","private dirs + cleared environment + no_new_privs + core-dump disabled");}
-    #[cfg(windows)]{return ("data-isolated","private dirs + cleared environment; Windows Job Object/AppContainer containment pending");}
+    #[cfg(windows)]{return ("os-constrained","private dirs + cleared environment + Job Object process-tree containment + hard CPU cap");}
     #[allow(unreachable_code)]("data-isolated","private dirs + cleared environment")
 }
