@@ -1,53 +1,64 @@
 # Vigi Compact — storage contract v0.1
 
-Vigi Compact is a lossless local storage layer for VigiChain. It is not pruning and it is not consensus.
+Vigi Compact is a lossless local storage layer for VigiChain. It is **not pruning** and **not consensus**.
 
-## Invariants
+## Hard invariants
 
-1. The canonical VigiChain bytes remain authoritative.
-2. A compacted object MUST restore byte-for-byte to its canonical representation before normal Core validation.
-3. Compression MUST NOT change block hashes, transaction IDs, Merkle roots, signatures, PoW inputs or consensus rules.
-4. Every compact object is bound to network, object kind, canonical length and SHA-256 digest.
-5. Decompression is bounded by the manifest's canonical length to prevent decompression bombs.
-6. A compact object is activated atomically only after round-trip verification succeeds.
-7. Failure is fail-closed: retain the canonical source and report the error.
-8. Compact != prune. The first implementation never deletes historical information.
+1. Canonical VigiChain bytes remain authoritative.
+2. A compact object restores byte-for-byte before normal Core validation.
+3. Compression never changes block hashes, TXIDs, Merkle roots, signatures, PoW inputs or consensus rules.
+4. Each object is bound to canonical byte length and SHA-256.
+5. Decompression is bounded by declared canonical length (16 GiB safety ceiling in the desktop prototype).
+6. Activation uses a pending file + fsync + atomic rename only after immediate round-trip verification.
+7. Corruption fails closed.
+8. Objects that would become larger after compression are skipped.
+9. Compact != prune. v0.1 deletes no historical information.
 
-## v0.1 scope
+## Implemented desktop prototype
 
-The desktop controller exposes a real, conservative compact engine for files explicitly placed in the Vigi Compact staging/source directory. This proves the container, integrity, atomic activation, restore and UX without guessing the private Core database format.
+`src-tauri/src/compact.rs` implements the `VGC1` container using Zstandard and content-addressed filenames.
 
-Core integration later supplies canonical block segments / snapshots through a versioned local IPC contract.
+Current explicit source path:
 
-## Container
+`~/.vigichain/compact/source`
 
-`VGC1` container:
+Verified compact objects:
 
-- magic: `VGC1`
-- format version: `1`
-- codec: `zstd`
-- network
-- object kind
-- canonical byte length
-- canonical SHA-256
-- compressed payload
+`~/.vigichain/compact/objects/<canonical-sha256>.vgc`
 
-The implementation verifies decompressed length and SHA-256 before activation or restore.
+Verified restore output:
 
-## Modes
+`~/.vigichain/compact/restored/<canonical-sha256>.canonical`
 
-- Automatic: background candidates selected by Core policy.
-- Maximum: higher zstd level, intended for disk-constrained nodes.
-- Off: no new compaction; existing compact objects remain readable.
+The Mission Control Storage surface exposes:
 
-## Core IPC target
+- Automatic / Maximum / Off policy
+- Compact now
+- Restore verified
+- canonical bytes represented
+- compact bytes stored
+- bytes saved
+- verified object count
+- candidate count
 
-Core should eventually expose local-only operations equivalent to:
+Automatic uses a balanced Zstandard level; Maximum uses a higher compression level. These names describe local storage policy, not consensus behavior.
 
-- `compact.candidates()` -> canonical immutable objects safe to compact
-- `compact.open(id)` -> canonical byte stream + expected digest/length
-- `compact.commit(id, container, manifest)` -> atomic storage swap
+## Deliberate Core boundary
+
+The public distribution repository does not contain the private VigiChain Core persistence implementation. Therefore Vigi Miner **does not parse, mutate, rename or compress the private chain database directly**.
+
+The prototype only operates on explicitly supplied canonical files. Production integration requires Core to provide immutable canonical objects through a versioned local IPC contract.
+
+Target operations:
+
+- `compact.candidates()`
+- `compact.open(id)` -> canonical stream + expected length/digest
+- `compact.commit(id, compact-object, manifest)` -> Core-owned atomic storage transition
 - `compact.restore(id)` -> canonical stream
-- `compact.stats()` -> source/stored/saved bytes, objects, verification state
+- `compact.stats()`
 
-Vigi Miner must never parse the private chain database directly.
+Core remains responsible for deciding when an object is immutable and safe to compact. Vigi Miner remains the policy/UI/controller layer.
+
+## Validation
+
+The Rust module contains tests for exact round-trip reconstruction and corruption rejection. `.github/workflows/vigi-miner-ci.yml` runs `cargo check`, these Compact tests and the frontend build. Do not claim the build is green until GitHub Actions has actually reported success.
