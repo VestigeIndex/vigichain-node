@@ -18,9 +18,17 @@ fn policy(free: u64, represented: u64) -> (&'static str, &'static str, &'static 
     let critical = free < 20 * GIB || (represented > 0 && free < represented / 2);
     let elevated = free < 80 * GIB || (represented > 0 && free < represented);
     if critical {
-        ("maximum", "critical", "Free storage is low relative to Vigi data. Maximum compression is recommended.")
+        (
+            "maximum",
+            "critical",
+            "Free storage is low relative to Vigi data. Maximum compression is recommended.",
+        )
     } else if elevated {
-        ("automatic", "elevated", "Storage headroom is limited. Automatic compaction is recommended.")
+        (
+            "automatic",
+            "elevated",
+            "Storage headroom is limited. Automatic compaction is recommended.",
+        )
     } else {
         ("automatic", "normal", "Storage headroom is healthy. Automatic compaction preserves space without aggressive CPU use.")
     }
