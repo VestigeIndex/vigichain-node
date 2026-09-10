@@ -32,7 +32,7 @@ jobs:
       - name: Install Tauri Linux dependencies
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - run: cargo check
-      - run: cargo test compact::tests
+      - run: cargo test
 
   rust-windows:
     runs-on: windows-latest
@@ -43,3 +43,4 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo check
+      - run: cargo test
