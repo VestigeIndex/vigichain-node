@@ -1,3 +1,6 @@
+mod hardware;
+mod sandbox;
+
 use minisign_verify::{PublicKey, Signature};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
@@ -29,6 +32,9 @@ struct MinerConfig {
     threads: u16,
     bootnodes: String,
     network: String,
+    power_profile: String,
+    cpu_limit_percent: u8,
+    sandboxed: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -295,6 +301,9 @@ fn start_mining(config: MinerConfig, process: State<'_, MinerProcess>) -> Result
     if config.network == "mainnet" { return Err("Mainnet is visible in Vigi Miner but remains locked while VigiChain Core reports MAINNET_LAUNCHED=false".into()); }
     if config.network != "testnet" { return Err("Unknown VigiChain network".into()); }
     if !config.address.starts_with("tvigi1") { return Err("Testnet reward address must start with tvigi1".into()); }
+    if !config.sandboxed { return Err("Vigi Miner refuses to start the node outside its isolated execution environment".into()); }
+    if config.cpu_limit_percent < 10 || config.cpu_limit_percent > 100 { return Err("CPU limit must be between 10 and 100 percent".into()); }
+    if !matches!(config.power_profile.as_str(), "eco" | "balanced" | "performance" | "custom") { return Err("Unknown power profile".into()); }
     if config.threads == 0 { return Err("Mining threads must be greater than zero".into()); }
     let available_threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
     if usize::from(config.threads) > available_threads { return Err(format!("Requested {} mining threads but this system exposes only {} logical CPUs", config.threads, available_threads)); }
@@ -304,15 +313,22 @@ fn start_mining(config: MinerConfig, process: State<'_, MinerProcess>) -> Result
         if child.try_wait().map_err(|e| e.to_string())?.is_none() { return Ok(NodeStatus { running: true, pid: Some(child.id()), binary_available: true }); }
         *guard = None;
     }
+
     let binary = node_binary_path()?;
-    let child = Command::new(binary)
+    let sandbox_paths = sandbox::prepare("testnet")?;
+    let mut command = Command::new(binary);
+    sandbox::apply_baseline(&mut command, &sandbox_paths);
+    command
         .env("VIGI_NETWORK", "testnet")
         .env("VIGI_ENABLE_MINING", "true")
         .env("VIGI_MINING_THREADS", config.threads.to_string())
         .env("VIGI_MINER_ADDRESS", &config.address)
         .env("VIGI_BOOTNODES", &config.bootnodes)
-        .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
-        .spawn().map_err(|e| format!("Unable to start VigiChain node: {e}"))?;
+        .env("VIGI_POWER_PROFILE", &config.power_profile)
+        .env("VIGI_CPU_LIMIT_PERCENT", config.cpu_limit_percent.to_string())
+        .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+
+    let child = command.spawn().map_err(|e| format!("Unable to start sandboxed VigiChain node: {e}"))?;
     let pid = child.id();
     *guard = Some(child);
     Ok(NodeStatus { running: true, pid: Some(pid), binary_available: true })
@@ -341,7 +357,14 @@ fn miner_status(process: State<'_, MinerProcess>) -> Result<NodeStatus, String> 
 pub fn run() {
     tauri::Builder::default()
         .manage(MinerProcess(Mutex::new(None)))
-        .invoke_handler(tauri::generate_handler![start_mining, stop_mining, miner_status, system_info, install_verified_node])
+        .invoke_handler(tauri::generate_handler![
+            start_mining,
+            stop_mining,
+            miner_status,
+            system_info,
+            install_verified_node,
+            hardware::discover_mining_hardware
+        ])
         .run(tauri::generate_context!())
         .expect("error while running Vigi Miner");
 }
