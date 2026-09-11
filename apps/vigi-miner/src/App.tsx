@@ -4,8 +4,11 @@ import {
   Activity, Archive, Box, CheckCircle2, CircleGauge, Cpu, Database,
   Download, Gauge, HardDrive, Languages, LifeBuoy, LockKeyhole, Microchip,
   Network, Play, RotateCcw, ScanSearch, ServerCog, Settings2, Shield,
-  ShieldCheck, SlidersHorizontal, Sparkles, Square, Waves, Zap,
+  ShieldCheck, SlidersHorizontal, Sparkles, Square, Waves,
 } from 'lucide-react';
+
+/** VigiChain's mark, traced from the website's symbol; the same five shapes as src-tauri/src/icon.rs. */
+const VIGICHAIN_MARK = 'M52 103 L52 126 L54 141 L59 163 L66 185 L87 227 L100 245 L114 260 L129 273 L147 285 L174 299 L220 316 L237 320 L294 338 L316 347 L347 363 L371 379 L387 392 L416 421 L435 445 L435 443 L410 396 L318 231 L301 206 L277 181 L251 162 L216 145 L171 132 L163 131Z M139 308 L282 554 L375 709 L399 751 L402 754 L498 594 L437 488 L418 459 L394 430 L363 402 L332 381 L287 360 L193 331 L162 319Z M883 308 L860 319 L829 331 L788 344 L764 350 L735 360 L709 371 L690 381 L665 397 L646 412 L616 443 L595 471 L437 737 L414 773 L414 776 L423 792 L460 849 L471 863 L494 885 L506 891 L515 891 L524 887 L536 878 L550 863 L570 836 L598 792 L644 713 L713 599 L824 409 L831 399Z M511 160 L484 188 L471 204 L453 231 L440 257 L434 273 L428 298 L426 318 L429 353 L438 386 L454 426 L462 442 L467 456 L511 556 L581 393 L589 368 L595 337 L595 309 L593 294 L589 277 L581 255 L567 228 L553 207 L538 188Z M970 103 L839 135 L808 144 L766 165 L752 175 L736 189 L720 207 L702 234 L615 390 L587 444 L613 413 L635 392 L658 374 L680 360 L699 350 L733 336 L781 321 L798 317 L841 302 L873 286 L900 267 L922 245 L941 217 L952 195 L961 170 L968 141 L970 125Z';
 import { detectLocale, localeNames, supportedLocales, translator, type Locale } from './i18n';
 import { DialSlider, MenuSelect } from './controls';
 
@@ -350,7 +353,7 @@ function Sidebar({ view, setView, t }: { view: View; setView: (view: View) => vo
     ['sandbox', <Shield key="sandbox" />, t('sandbox')],
     ['help', <LifeBuoy key="help" />, t('help')],
   ];
-  return <aside className="rail"><div className="brand-cluster"><div className="brand-core"><Zap size={18} /></div><strong>Vigi Miner</strong><span>Mission Control</span></div><div className="rail-nav">{nav.map(([id, icon, label]) => <button key={id} className={`rail-item ${view === id ? 'active' : ''}`} onClick={() => setView(id)}>{icon}<span>{label}</span></button>)}</div><div className="rail-foot"><div className="privacy-chip"><ShieldCheck /><span>{t('sandboxEnforced')}</span></div></div></aside>;
+  return <aside className="rail"><div className="brand-cluster"><div className="brand-core"><svg viewBox="52 103 918 788" role="img" aria-label="VigiChain"><path fill="#E2ECF6" d={VIGICHAIN_MARK} /></svg></div><strong>Vigi Miner</strong><span>Mission Control</span></div><div className="rail-nav">{nav.map(([id, icon, label]) => <button key={id} className={`rail-item ${view === id ? 'active' : ''}`} onClick={() => setView(id)}>{icon}<span>{label}</span></button>)}</div><div className="rail-foot"><div className="privacy-chip"><ShieldCheck /><span>{t('sandboxEnforced')}</span></div></div></aside>;
 }
 
 function NetworkTile({ selected, disabled, title, subtitle, badge, live, onClick }: { selected: boolean; disabled: boolean; title: string; subtitle: string; badge: string; live?: boolean; onClick: () => void }) {

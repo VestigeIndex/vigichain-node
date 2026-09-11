@@ -38,7 +38,8 @@ button:disabled { cursor:default; }
   padding:20px 14px; display:flex; flex-direction:column; align-items:center;
 }
 .brand-cluster { display:flex; flex-direction:column; align-items:center; gap:9px; text-align:center; }
-.brand-core { width:48px; height:48px; border-radius:15px; display:grid; place-items:center; color:#071108; background:linear-gradient(145deg,#ecfff3,#a8ffc8); box-shadow:0 0 50px rgba(101,255,164,.14),inset 0 0 0 1px rgba(255,255,255,.7); }
+.brand-core { width:48px; height:48px; border-radius:15px; display:grid; place-items:center; background:#03070d; box-shadow:0 0 50px rgba(101,255,164,.10),inset 0 0 0 1px rgba(226,236,246,.18); }
+.brand-core svg { width:36px; height:31px; display:block; }
 .brand-cluster strong,.brand-cluster span { display:block; }
 .brand-cluster strong { font-size:11px; }
 .brand-cluster span { margin-top:2px; color:#5e676f; font-size:9px; }

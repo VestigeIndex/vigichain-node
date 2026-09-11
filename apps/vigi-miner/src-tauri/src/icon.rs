@@ -11,30 +11,109 @@
 // script that panics fails the crate before one line of the application is compiled. Every
 // `cargo check` on Windows and on Linux died at `build.rs:48` with "attempt to subtract with
 // overflow", so this application's CI had never been green once. Two changes follow from that:
-// the geometry works in `i32`, where a negative intermediate value is a number rather than a
-// crash; and it lives in the crate, where `cargo test` actually runs the tests at the bottom of
-// this file. A test inside `build.rs` would have been reassuring and never executed.
+// the geometry works in signed and floating-point values, where a negative intermediate is a
+// number rather than a crash; and it lives in the crate, where `cargo test` actually runs the tests
+// at the bottom of this file. A test inside `build.rs` would have been reassuring and never executed.
+//
+// THE MARK IS VIGICHAIN'S OWN. Vigi Miner carries the same mark as VigiChain, not a mark of its
+// own. That mark exists as a 1024-pixel PNG on the website
+// (https://vigichain.org/brand/vigichain-symbol-20260907.png); it was traced once into the five
+// polygons below — 124 points, which re-rasterised against the original cover the same pixels at an
+// intersection-over-union of 0.9957 — so that it can still be drawn from code instead of shipped as
+// a file. The framing copies the website's own app icon: the mark spans 439/512 of the width,
+// starts 36/512 from the left and 60/512 from the top, pale ink on the same near-black ground.
 //
 // `build.rs` includes this file directly, so it must stay dependency-free.
 
-/// Is this pixel part of the mark?
+/// The mark, in the 1024-unit space of the source symbol: five filled shapes, left to right.
+pub const MARK: [&[(i16, i16)]; 5] = [
+    &[(52, 103), (52, 126), (54, 141), (59, 163), (66, 185), (87, 227), (100, 245), (114, 260), (129, 273), (147, 285), (174, 299), (220, 316), (237, 320), (294, 338), (316, 347), (347, 363), (371, 379), (387, 392), (416, 421), (435, 445), (435, 443), (410, 396), (318, 231), (301, 206), (277, 181), (251, 162), (216, 145), (171, 132), (163, 131)],
+    &[(139, 308), (282, 554), (375, 709), (399, 751), (402, 754), (498, 594), (437, 488), (418, 459), (394, 430), (363, 402), (332, 381), (287, 360), (193, 331), (162, 319)],
+    &[(883, 308), (860, 319), (829, 331), (788, 344), (764, 350), (735, 360), (709, 371), (690, 381), (665, 397), (646, 412), (616, 443), (595, 471), (437, 737), (414, 773), (414, 776), (423, 792), (460, 849), (471, 863), (494, 885), (506, 891), (515, 891), (524, 887), (536, 878), (550, 863), (570, 836), (598, 792), (644, 713), (713, 599), (824, 409), (831, 399)],
+    &[(511, 160), (484, 188), (471, 204), (453, 231), (440, 257), (434, 273), (428, 298), (426, 318), (429, 353), (438, 386), (454, 426), (462, 442), (467, 456), (511, 556), (581, 393), (589, 368), (595, 337), (595, 309), (593, 294), (589, 277), (581, 255), (567, 228), (553, 207), (538, 188)],
+    &[(970, 103), (839, 135), (808, 144), (766, 165), (752, 175), (736, 189), (720, 207), (702, 234), (615, 390), (587, 444), (613, 413), (635, 392), (658, 374), (680, 360), (699, 350), (733, 336), (781, 321), (798, 317), (841, 302), (873, 286), (900, 267), (922, 245), (941, 217), (952, 195), (961, 170), (968, 141), (970, 125)],
+];
+
+/// Each shape's bounding box as (left, top, right, bottom), so a point skips shapes it cannot be in.
+const MARK_BOUNDS: [(i16, i16, i16, i16); 5] = [
+    (52, 103, 435, 445),
+    (139, 308, 498, 754),
+    (414, 308, 883, 891),
+    (426, 160, 595, 556),
+    (587, 103, 970, 444),
+];
+
+/// The mark's extent in the symbol's 1024-unit space: left edge, top edge, width.
+const MARK_LEFT: f64 = 52.0;
+const MARK_TOP: f64 = 103.0;
+const MARK_SPAN: f64 = 918.0;
+
+/// Colours sampled from the website's app icon, so the two cannot drift apart by eye.
+const GROUND: (u8, u8, u8) = (2, 7, 13);
+const INK: (u8, u8, u8) = (226, 236, 246);
+
+/// Is this point, in the symbol's own space, inside the mark?
 ///
-/// The shape is a "V": two strokes descending towards the centre, closed by a short tip.
-pub fn is_mark(x: i32, y: i32, width: i32, height: i32) -> bool {
-    let centre = width / 2;
-    let dx = x - centre;
-    // The strokes start a fifth of the way down and end a fifth from the bottom, so the mark sits
-    // inside the icon's optical square instead of touching its edges.
-    let top = height / 5;
-    let bottom = height - height / 5;
-    if y < top || y > bottom {
-        return false;
+/// Even-odd ray casting. The five shapes neither overlap nor contain holes, so one crossing count
+/// across all of them is exact; the bounding boxes only skip shapes a point cannot be in.
+fn inside(px: f64, py: f64) -> bool {
+    let mut hit = false;
+    for (shape, &(x0, y0, x1, y1)) in MARK.iter().zip(MARK_BOUNDS.iter()) {
+        if px < x0 as f64 || px > x1 as f64 || py < y0 as f64 || py > y1 as f64 {
+            continue;
+        }
+        let n = shape.len();
+        let mut j = n - 1;
+        for i in 0..n {
+            let (xi, yi) = (shape[i].0 as f64, shape[i].1 as f64);
+            let (xj, yj) = (shape[j].0 as f64, shape[j].1 as f64);
+            if (yi > py) != (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi {
+                hit = !hit;
+            }
+            j = i;
+        }
     }
-    let descent = (y - top) / 2;
-    let left_stroke = (dx + descent).abs() <= 2;
-    let right_stroke = (dx - descent).abs() <= 2;
-    let tip = y >= bottom - 3 && dx.abs() <= (bottom - y) + 1;
-    left_stroke || right_stroke || tip
+    hit
+}
+
+/// Where a point of a `width`-pixel icon lands in the symbol's space. Icons are square, so one
+/// scale serves both axes.
+fn to_symbol(x: f64, y: f64, width: i32) -> (f64, f64) {
+    let size = width as f64;
+    let scale = size * 439.0 / 512.0 / MARK_SPAN;
+    let left = size * 36.0 / 512.0;
+    let top = size * 60.0 / 512.0;
+    (MARK_LEFT + (x - left) / scale, MARK_TOP + (y - top) / scale)
+}
+
+/// Is this pixel part of the mark? Sampled at the pixel's centre.
+pub fn is_mark(x: i32, y: i32, width: i32, _height: i32) -> bool {
+    let (px, py) = to_symbol(x as f64 + 0.5, y as f64 + 0.5, width);
+    inside(px, py)
+}
+
+/// How much of this pixel the mark covers, in sixteenths: a 4×4 grid of samples, so the curves of
+/// the leaves are smooth at 256 pixels instead of stepped.
+pub fn coverage(x: i32, y: i32, width: i32, _height: i32) -> u32 {
+    let mut hits = 0;
+    for j in 0..4 {
+        for i in 0..4 {
+            let sx = x as f64 + (2 * i + 1) as f64 / 8.0;
+            let sy = y as f64 + (2 * j + 1) as f64 / 8.0;
+            let (px, py) = to_symbol(sx, sy, width);
+            if inside(px, py) {
+                hits += 1;
+            }
+        }
+    }
+    hits
+}
+
+/// The pixel's colour: ground and ink mixed by coverage, always opaque.
+fn pixel(x: i32, y: i32, width: i32, height: i32) -> (u8, u8, u8, u8) {
+    let c = coverage(x, y, width, height);
+    let mix = |g: u8, i: u8| ((g as u32 * (16 - c) + i as u32 * c + 8) / 16) as u8;
+    (mix(GROUND.0, INK.0), mix(GROUND.1, INK.1), mix(GROUND.2, INK.2), 255)
 }
 
 fn push_u16(out: &mut Vec<u8>, value: u16) {
@@ -84,15 +163,11 @@ pub fn build_icon_ico() -> Vec<u8> {
     push_u32(&mut out, 0);
     push_u32(&mut out, 0);
 
-    // Bottom-up BGRA: the product's near-black ground, with the mark in its mint accent.
+    // Bottom-up BGRA.
     for y_bottom in 0..H {
         let y = (H - 1 - y_bottom) as i32;
         for x in 0..W {
-            let (r, g, b, a) = if is_mark(x as i32, y, W as i32, H as i32) {
-                (176u8, 255u8, 210u8, 255u8)
-            } else {
-                (7u8, 10u8, 12u8, 255u8)
-            };
+            let (r, g, b, a) = pixel(x as i32, y, W as i32, H as i32);
             out.extend_from_slice(&[b, g, r, a]);
         }
     }
@@ -157,11 +232,7 @@ pub fn build_icon_png(size: u32) -> Vec<u8> {
     for y in 0..size {
         raw.push(0);
         for x in 0..size {
-            let (r, g, b, a) = if is_mark(x as i32, y as i32, size as i32, size as i32) {
-                (176u8, 255u8, 210u8, 255u8)
-            } else {
-                (7u8, 10u8, 12u8, 255u8)
-            };
+            let (r, g, b, a) = pixel(x as i32, y as i32, size as i32, size as i32);
             raw.extend_from_slice(&[r, g, b, a]);
         }
     }
@@ -220,6 +291,30 @@ mod tests {
             marked < 512,
             "the mark covers half the icon: {marked} pixels"
         );
+    }
+
+    /// It is VigiChain's V and not some other shape: the centre leaf is ink, the notch above it
+    /// between the two outer leaves is ground, and so are the corners.
+    #[test]
+    fn the_mark_is_vigichains_v() {
+        // Symbol (512, 350) is inside the centre leaf; (512, 120) is above it, between the leaves.
+        assert!(is_mark(256, 178, 512, 512), "centre leaf");
+        assert!(!is_mark(256, 68, 512, 512), "notch above the centre leaf");
+        for &(x, y) in &[(2, 2), (509, 2), (2, 509), (509, 509)] {
+            assert!(!is_mark(x, y, 512, 512), "corner ({x}, {y})");
+        }
+    }
+
+    /// The traced table is the thing reviewers read, so it has to be self-consistent: every box
+    /// really bounds its shape, and every shape is a polygon rather than a stray point.
+    #[test]
+    fn the_traced_table_is_consistent() {
+        for (shape, &(x0, y0, x1, y1)) in MARK.iter().zip(MARK_BOUNDS.iter()) {
+            assert!(shape.len() >= 3, "a shape needs at least three points");
+            for &(x, y) in shape.iter() {
+                assert!(x >= x0 && x <= x1 && y >= y0 && y <= y1, "point outside its box");
+            }
+        }
     }
 
     /// The header the ICO format promises, byte for byte, so a malformed icon fails here rather
