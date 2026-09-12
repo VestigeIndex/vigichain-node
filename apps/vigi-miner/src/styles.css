@@ -31,9 +31,28 @@ body::before {
 button,input { font:inherit; }
 button { cursor:pointer; }
 button:disabled { cursor:default; }
-.mission-shell { position:relative; z-index:1; display:grid; grid-template-columns:92px 1fr; min-height:100vh; }
+.mission-shell { position:relative; z-index:1; display:grid; grid-template-columns:92px 1fr; grid-template-rows:36px 1fr; min-height:100vh; }
+
+/* The window frame this application draws for itself; the system one is off (decorations:false). */
+.window-frame {
+  grid-column:1 / -1; display:flex; align-items:center; justify-content:space-between;
+  height:36px; padding:0 0 0 16px; border-bottom:1px solid var(--line);
+  background:rgba(7,9,11,.86); backdrop-filter:blur(32px) saturate(130%);
+  user-select:none; -webkit-user-select:none;
+}
+.window-title { font:600 10px/1 var(--mono,ui-monospace,monospace); letter-spacing:.22em; text-transform:uppercase; color:rgba(226,236,246,.62); }
+.window-controls { display:flex; height:100%; }
+.window-controls button {
+  width:46px; height:100%; display:grid; place-items:center; border:0; background:transparent;
+  color:rgba(226,236,246,.62); cursor:pointer; transition:background .16s ease, color .16s ease;
+}
+.window-controls button:hover { background:rgba(226,236,246,.08); color:#E2ECF6; }
+.window-controls button.close:hover { background:#B3261E; color:#fff; }
+.window-controls button:focus-visible { outline:1px solid rgba(101,255,164,.7); outline-offset:-3px; }
+.rail, .mission-main { grid-row:2; }
 .rail {
-  position:sticky; top:0; height:100vh; border-right:1px solid var(--line);
+  /* The frame takes the first 36px of the window, so the rail's own viewport is what is left. */
+  position:sticky; top:36px; height:calc(100vh - 36px); border-right:1px solid var(--line);
   background:rgba(7,9,11,.76); backdrop-filter:blur(32px) saturate(130%);
   padding:20px 14px; display:flex; flex-direction:column; align-items:center;
 }

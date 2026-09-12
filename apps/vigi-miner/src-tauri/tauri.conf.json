@@ -12,15 +12,17 @@
   "app": {
     "windows": [
       {
-        "title": "Vigi Miner · Mission Control",
+        "title": "Vigi Miner \u00b7 Mission Control",
         "width": 1440,
         "height": 960,
         "minWidth": 1040,
         "minHeight": 720,
         "resizable": true,
         "fullscreen": false,
-        "decorations": true,
-        "additionalBrowserArgs": "--force-device-scale-factor=1"
+        "decorations": false,
+        "additionalBrowserArgs": "--force-device-scale-factor=1",
+        "transparent": false,
+        "shadow": true
       }
     ],
     "security": {

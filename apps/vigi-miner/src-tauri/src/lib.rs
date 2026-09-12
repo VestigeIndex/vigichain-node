@@ -16,7 +16,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
     fs,
-    io::Write,
+    io::{BufRead, Write},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::Mutex,
@@ -35,6 +35,48 @@ struct RunningMiner {
     _containment: process_containment::ProcessContainment,
 }
 struct MinerProcess(Mutex<Option<RunningMiner>>);
+
+enum StdStream {
+    Out(std::process::ChildStdout),
+    Err(std::process::ChildStderr),
+}
+
+/**
+The node's own words, kept.
+
+This app used to spawn the node with `Stdio::null()` on both streams, which threw away the only
+thing that explains a miner that is running and getting nowhere. The node prints, in plain words,
+`bootnode <host> resolved to <ip> but the connection failed ... If this is the only bootnode you
+have, this node will not sync` — and the person looking at Mission Control saw a height counting
+up from zero and no peers, which looks like success to anyone who has not run a node before.
+
+So the streams are piped into a small ring buffer, and the interface can ask for the last lines and
+say what is actually happening. Two hundred lines is enough for the start-up sequence and the first
+failures, and small enough that nothing here needs a policy about growth.
+*/
+const NODE_LOG_LINES: usize = 200;
+static NODE_LOG: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+fn node_log_push(line: String) {
+    if let Ok(mut log) = NODE_LOG.lock() {
+        if log.len() >= NODE_LOG_LINES {
+            log.remove(0);
+        }
+        log.push(line);
+    }
+}
+
+fn node_log_clear() {
+    if let Ok(mut log) = NODE_LOG.lock() {
+        log.clear();
+    }
+}
+
+/// The last lines the node printed, newest last.
+#[tauri::command]
+fn node_log() -> Vec<String> {
+    NODE_LOG.lock().map(|l| l.clone()).unwrap_or_default()
+}
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct MinerConfig {
@@ -484,9 +526,29 @@ fn start_mining(
             config.cpu_limit_percent.to_string(),
         )
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    node_log_clear();
     let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+    // Drained on their own threads: a pipe nobody reads fills, and a node whose stdout is full
+    // stops — which would turn a diagnostic into an outage.
+    for stream in [
+        child.stdout.take().map(StdStream::Out),
+        child.stderr.take().map(StdStream::Err),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        std::thread::spawn(move || {
+            let reader: Box<dyn std::io::Read + Send> = match stream {
+                StdStream::Out(o) => Box::new(o),
+                StdStream::Err(e) => Box::new(e),
+            };
+            for line in std::io::BufReader::new(reader).lines().map_while(Result::ok) {
+                node_log_push(line);
+            }
+        });
+    }
     let containment =
         match process_containment::ProcessContainment::attach(&child, config.cpu_limit_percent) {
             Ok(c) => c,
@@ -565,7 +627,8 @@ pub fn run() {
             compact_now,
             compact_restore_all,
             compact_advice,
-            telemetry_snapshot
+            telemetry_snapshot,
+            node_log
         ])
         // The webview keeps its zoom factor between sessions, and a factor that is not 1.0 is
         // indistinguishable from a broken layout: at 1.2 the interface is simply wider than the

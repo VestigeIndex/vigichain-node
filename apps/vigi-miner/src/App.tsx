@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   Activity, Archive, Box, CheckCircle2, CircleGauge, Cpu, Database,
   Download, Gauge, HardDrive, Languages, LifeBuoy, LockKeyhole, Microchip,
   Network, Play, RotateCcw, ScanSearch, ServerCog, Settings2, Shield,
-  ShieldCheck, SlidersHorizontal, Sparkles, Square, Waves,
+  ShieldCheck, SlidersHorizontal, Sparkles, Square, Waves, Minus, Maximize2, Minimize2, X,
 } from 'lucide-react';
 
 /** VigiChain's mark, traced from the website's symbol; the same five shapes as src-tauri/src/icon.rs. */
@@ -112,13 +113,26 @@ export default function App() {
   const [binaryAvailable, setBinaryAvailable] = useState(false);
   const [system, setSystem] = useState<SystemInfo | null>(null);
   const [telemetry, setTelemetry] = useState<TelemetryState | null>(null);
+  const [nodeLog, setNodeLog] = useState<string[]>([]);
   const [telemetrySeenAt, setTelemetrySeenAt] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [installResult, setInstallResult] = useState<InstallResult | null>(null);
   const [error, setError] = useState('');
   const [advanced, setAdvanced] = useState(false);
-  const [bootnodes, setBootnodes] = useState('seed-04.vigichain.org:28719');
+  /*
+    Two entry points, not one.
+
+    `seed-04` is the published TCP seed and today it does not answer from outside the network it
+    lives on — a miner that only knows it starts, hashes, and never meets anybody. The onion address
+    is the route that does work, and the node dials it through a local Tor proxy when one is
+    running. Offering both costs nothing when the first succeeds and is the difference between
+    joining and not when it does not. The field stays editable: an operator with their own node
+    types its address here.
+  */
+  const [bootnodes, setBootnodes] = useState(
+    'seed-04.vigichain.org:28719,tor://2k2us2joevlvnja7i74dbfre3krmwmi3cbft5pvz4t3rtguzoha7xzyd.onion:28719',
+  );
   const [scanningHardware, setScanningHardware] = useState(false);
   const [hardwareScanned, setHardwareScanned] = useState(false);
   const [devices, setDevices] = useState<MiningDevice[]>([]);
@@ -135,6 +149,27 @@ export default function App() {
   const telemetryNetworkMatch = !telemetrySnapshot || telemetrySnapshot.network === network;
   const trustedTelemetry = telemetryNetworkMatch ? telemetrySnapshot : null;
   const telemetryAge = telemetrySeenAt ? Math.max(0, Date.now() - telemetrySeenAt) : null;
+  /**
+   * Whether this miner is actually on the network, in the node's own words.
+   *
+   * A node that cannot reach a single peer still starts, still hashes and still counts a height —
+   * its own, from the genesis block — and every number on this screen goes up. Without this line a
+   * reader has no way to tell that apart from mining, and the node had already said exactly what
+   * was wrong on a stream this app used to discard.
+   *
+   * Two sources, in order of authority: what the node printed, and what the telemetry shows. The
+   * printed line wins because it names the host and the reason; the peer count is the fallback for
+   * the case where nothing was printed at all.
+   */
+  const networkTrouble = useMemo(() => {
+    const spoken = [...nodeLog].reverse().find((line) => /will not sync|connection failed|refused|no bootnode/i.test(line));
+    if (spoken) return spoken.replace(/^\[[a-z0-9]+\]\s*/i, '');
+    if (running && trustedTelemetry && trustedTelemetry.p2p.authenticatedPeers === 0) {
+      return t('noPeersWarning');
+    }
+    return '';
+  }, [nodeLog, running, trustedTelemetry, t]);
+
   const telemetryState = !telemetryNetworkMatch ? 'NETWORK MISMATCH'
     : trustedTelemetry ? (telemetryAge != null && telemetryAge > 5000 ? 'STALE' : 'LIVE')
       : 'UNAVAILABLE';
@@ -170,14 +205,16 @@ export default function App() {
     }
     async function poll() {
       try {
-        const [status, live] = await Promise.all([
+        const [status, live, log] = await Promise.all([
           invoke<NodeStatus>('miner_status'),
           invoke<TelemetryState>('telemetry_snapshot').catch(() => null),
+          invoke<string[]>('node_log').catch(() => [] as string[]),
         ]);
         if (disposed) return;
         setRunning(status.running);
         setPid(status.pid);
         setBinaryAvailable(status.binaryAvailable);
+        setNodeLog(log);
         if (live) {
           setTelemetry(live);
           if (live.available && live.snapshot) setTelemetrySeenAt(Date.now());
@@ -278,6 +315,7 @@ export default function App() {
 
   return (
     <div className="mission-shell">
+      <WindowFrame title="Vigi Miner" />
       <Sidebar view={view} setView={setView} t={t} />
       <main className="mission-main">
         <TopBar locale={locale} setLocale={setLocale} telemetryState={telemetryState} />
@@ -295,6 +333,7 @@ export default function App() {
             </header>
 
             {!telemetryNetworkMatch && <div className="telemetry-warning">Core telemetry reports {telemetrySnapshot?.network?.toUpperCase()} while Mission Control is set to {network.toUpperCase()}. Metrics are intentionally hidden.</div>}
+            {networkTrouble && <div className="telemetry-warning">{networkTrouble}</div>}
 
             <section className="network-deck">
               <NetworkTile selected={network === 'testnet'} disabled={running} title={t('testnet')} subtitle={t('liveEnvironment')} badge={t('miningAvailable')} live onClick={() => { setNetwork('testnet'); setAddress(''); }} />
@@ -335,6 +374,64 @@ export default function App() {
         {error && <div className="error-box">{error}</div>}
         <footer><span>VigiChain · Testnet live · Mainnet locked</span><span>Vigi Miner 0.3 · Mission Control</span></footer>
       </main>
+    </div>
+  );
+}
+
+/**
+ * The window frame, drawn by the application.
+ *
+ * Windows' own title bar was the last piece of somebody else's design left in this app: a grey
+ * strip with a system font and three controls that belong to the 1990s, sitting on top of a surface
+ * that is otherwise entirely ours. It is also the same rule the rest of this interface already
+ * follows — no control here is a native form (`controls.tsx`) — applied to the window itself.
+ *
+ * `decorations: false` in `tauri.conf.json` removes the system frame; this gives back the three
+ * things it was doing. The bar is a drag region (`data-tauri-drag-region`), a double-click on it
+ * toggles maximise the way a title bar does, and the three controls are buttons in this app's own
+ * ink. Nothing else changes: the window is still resizable from its edges, still minimisable from
+ * the taskbar, and still closes with Alt+F4.
+ *
+ * The title is the product's name and nothing else. A title bar that repeats what the page already
+ * says is a title bar earning its removal.
+ */
+function WindowFrame({ title }: { title: string }) {
+  const [maximised, setMaximised] = useState(false);
+  const win = useMemo(() => {
+    try {
+      return getCurrentWindow();
+    } catch {
+      // Running in a plain browser (`vite preview` for capture work): no window to command.
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!win) return;
+    void win.isMaximized().then(setMaximised).catch(() => {});
+    const unlisten = win.onResized(() => {
+      void win.isMaximized().then(setMaximised).catch(() => {});
+    });
+    return () => {
+      void unlisten.then((off) => off()).catch(() => {});
+    };
+  }, [win]);
+
+  const toggle = () => {
+    if (!win) return;
+    void win.toggleMaximize().catch(() => {});
+  };
+
+  return (
+    <div className="window-frame" data-tauri-drag-region onDoubleClick={toggle}>
+      <span className="window-title" data-tauri-drag-region>{title}</span>
+      <div className="window-controls">
+        <button type="button" aria-label="Minimise" onClick={() => win?.minimize().catch(() => {})}><Minus size={14} /></button>
+        <button type="button" aria-label={maximised ? 'Restore' : 'Maximise'} onClick={toggle}>
+          {maximised ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+        </button>
+        <button type="button" className="close" aria-label="Close" onClick={() => win?.close().catch(() => {})}><X size={14} /></button>
+      </div>
     </div>
   );
 }
