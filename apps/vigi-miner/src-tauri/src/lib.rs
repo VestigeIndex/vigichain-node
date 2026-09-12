@@ -1,0 +1,647 @@
+mod hardware;
+// The icon generator. It is compiled into the crate — and therefore tested by `cargo test` — while
+// `build.rs` includes the same file to write the .ico before Tauri looks for it. Unused at runtime;
+// its value is that its tests run.
+mod compact;
+#[cfg_attr(not(test), allow(dead_code))]
+mod icon;
+mod process_containment;
+mod sandbox;
+mod storage_advisor;
+mod telemetry;
+use minisign_verify::{PublicKey, Signature};
+use reqwest::blocking::Client;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use sha2::{Digest, Sha256};
+use std::{
+    fs,
+    io::{BufRead, Write},
+    path::{Path, PathBuf},
+    process::{Child, Command, Stdio},
+    sync::Mutex,
+    time::Duration,
+};
+use tauri::State;
+const RELEASE_API: &str =
+    "https://api.github.com/repos/VestigeIndex/vigichain-node/releases/latest";
+const RELEASE_PUBLIC_KEY: &str = "RWQItT0J/YGNHI45GYmzWqVLUP+fMp5GXIbKxjp7eH/l7vZLfhv7KUsa";
+const PROVENANCE_NAME: &str = "VIGICHAIN-PROVENANCE.json";
+const SBOM_NAME: &str = "SBOM.cdx.json";
+const STATEMENT_TYPE: &str = "https://in-toto.io/Statement/v1";
+const PREDICATE_PREFIX: &str = "https://slsa.dev/provenance/";
+struct RunningMiner {
+    child: Child,
+    _containment: process_containment::ProcessContainment,
+}
+struct MinerProcess(Mutex<Option<RunningMiner>>);
+
+enum StdStream {
+    Out(std::process::ChildStdout),
+    Err(std::process::ChildStderr),
+}
+
+/**
+The node's own words, kept.
+
+This app used to spawn the node with `Stdio::null()` on both streams, which threw away the only
+thing that explains a miner that is running and getting nowhere. The node prints, in plain words,
+`bootnode <host> resolved to <ip> but the connection failed ... If this is the only bootnode you
+have, this node will not sync` — and the person looking at Mission Control saw a height counting
+up from zero and no peers, which looks like success to anyone who has not run a node before.
+
+So the streams are piped into a small ring buffer, and the interface can ask for the last lines and
+say what is actually happening. Two hundred lines is enough for the start-up sequence and the first
+failures, and small enough that nothing here needs a policy about growth.
+*/
+const NODE_LOG_LINES: usize = 200;
+static NODE_LOG: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+fn node_log_push(line: String) {
+    if let Ok(mut log) = NODE_LOG.lock() {
+        if log.len() >= NODE_LOG_LINES {
+            log.remove(0);
+        }
+        log.push(line);
+    }
+}
+
+fn node_log_clear() {
+    if let Ok(mut log) = NODE_LOG.lock() {
+        log.clear();
+    }
+}
+
+/// The last lines the node printed, newest last.
+#[tauri::command]
+fn node_log() -> Vec<String> {
+    NODE_LOG.lock().map(|l| l.clone()).unwrap_or_default()
+}
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MinerConfig {
+    address: String,
+    threads: u16,
+    bootnodes: String,
+    network: String,
+    power_profile: String,
+    cpu_limit_percent: u8,
+    sandboxed: bool,
+}
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NodeStatus {
+    running: bool,
+    pid: Option<u32>,
+    binary_available: bool,
+}
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SystemInfo {
+    logical_cpus: usize,
+    architecture: String,
+    operating_system: String,
+    node_binary_available: bool,
+    node_binary_path: Option<String>,
+    containment_level: String,
+    containment_detail: String,
+}
+#[derive(Debug, Deserialize)]
+struct GithubRelease {
+    tag_name: String,
+    assets: Vec<GithubAsset>,
+}
+#[derive(Debug, Deserialize)]
+struct GithubAsset {
+    name: String,
+    browser_download_url: String,
+}
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InstallResult {
+    tag: String,
+    artifact: String,
+    sha256: String,
+    source_commit: String,
+    builder: String,
+    sbom_components: usize,
+    installed_path: String,
+    verified: bool,
+}
+fn vigi_home() -> Result<PathBuf, String> {
+    let h = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .ok_or("Unable to resolve user home directory")?;
+    Ok(PathBuf::from(h).join(".vigichain"))
+}
+fn node_binary_name() -> Result<&'static str, String> {
+    if std::env::consts::ARCH != "x86_64" {
+        return Err(format!("No signed node for {}", std::env::consts::ARCH));
+    }
+    match std::env::consts::OS {
+        "windows" => Ok("vigichain-node-windows-x86_64.exe"),
+        "linux" => Ok("vigichain-node-linux-x86_64"),
+        x => Err(format!("No signed node for {x}")),
+    }
+}
+fn node_binary_path() -> Result<PathBuf, String> {
+    if let Ok(x) = std::env::var("VIGI_NODE_BINARY") {
+        let p = PathBuf::from(x);
+        if p.exists() {
+            return Ok(p);
+        }
+        return Err("VIGI_NODE_BINARY missing".into());
+    }
+    let b = vigi_home()?;
+    let p = b.join(node_binary_name()?);
+    if p.exists() {
+        return Ok(p);
+    }
+    let f = if cfg!(windows) {
+        b.join("vigichain-node.exe")
+    } else {
+        b.join("vigichain-node")
+    };
+    if f.exists() {
+        return Ok(f);
+    }
+    Err("Verified VigiChain node binary not found".into())
+}
+fn http_client() -> Result<Client, String> {
+    Client::builder()
+        .user_agent("VigiMiner/0.3 (+https://vigichain.org)")
+        .connect_timeout(Duration::from_secs(12))
+        .timeout(Duration::from_secs(90))
+        .build()
+        .map_err(|e| e.to_string())
+}
+fn get_latest_release(c: &Client) -> Result<GithubRelease, String> {
+    c.get(RELEASE_API)
+        .send()
+        .map_err(|e| e.to_string())?
+        .error_for_status()
+        .map_err(|e| e.to_string())?
+        .json()
+        .map_err(|e| e.to_string())
+}
+fn asset_url<'a>(r: &'a GithubRelease, n: &str) -> Result<&'a str, String> {
+    r.assets
+        .iter()
+        .find(|a| a.name == n)
+        .map(|a| a.browser_download_url.as_str())
+        .ok_or_else(|| format!("Missing release asset {n}"))
+}
+fn download(c: &Client, u: &str, p: &Path) -> Result<(), String> {
+    let b = c
+        .get(u)
+        .send()
+        .map_err(|e| e.to_string())?
+        .error_for_status()
+        .map_err(|e| e.to_string())?
+        .bytes()
+        .map_err(|e| e.to_string())?;
+    if b.is_empty() {
+        return Err("Empty release artifact".into());
+    }
+    let mut f = fs::File::create(p).map_err(|e| e.to_string())?;
+    f.write_all(&b).map_err(|e| e.to_string())
+}
+fn verify_signature(d: &[u8], s: &str) -> Result<(), String> {
+    let p = PublicKey::from_base64(RELEASE_PUBLIC_KEY).map_err(|e| e.to_string())?;
+    let sig = Signature::decode(s).map_err(|e| e.to_string())?;
+    p.verify(d, &sig, false).map_err(|e| e.to_string())
+}
+fn sha256_hex(d: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(d))
+}
+fn verify_manifest(m: &str, a: &str, d: &str) -> Result<(), String> {
+    let n = m
+        .lines()
+        .filter(|l| {
+            let mut p = l.split_whitespace();
+            matches!(p.next(),Some(h)if h.eq_ignore_ascii_case(d))
+                && matches!(p.next(),Some(x)if x.trim_start_matches('*')==a)
+        })
+        .count();
+    if n != 1 {
+        return Err("Signed manifest binding invalid".into());
+    }
+    Ok(())
+}
+fn parse_provenance(v: &Value, a: &str, d: &str, t: &str) -> Result<(String, String), String> {
+    if v.get("_type").and_then(Value::as_str) != Some(STATEMENT_TYPE)
+        || !v
+            .get("predicateType")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .starts_with(PREDICATE_PREFIX)
+    {
+        return Err("Invalid provenance type".into());
+    }
+    let s = v
+        .get("subject")
+        .and_then(Value::as_array)
+        .ok_or("No provenance subjects")?;
+    let mine: Vec<&Value> = s
+        .iter()
+        .filter(|x| x.get("name").and_then(Value::as_str) == Some(a))
+        .collect();
+    if mine.len() != 1
+        || !mine[0]
+            .pointer("/digest/sha256")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .eq_ignore_ascii_case(d)
+    {
+        return Err("Provenance subject mismatch".into());
+    }
+    let e = v
+        .pointer("/predicate/buildDefinition/externalParameters")
+        .ok_or("No external parameters")?;
+    if e.get("ref").and_then(Value::as_str).unwrap_or("") != format!("refs/tags/{t}") {
+        return Err("Provenance tag mismatch".into());
+    }
+    let deps = v
+        .pointer("/predicate/buildDefinition/resolvedDependencies")
+        .and_then(Value::as_array)
+        .ok_or("No source dependency")?;
+    let mut c: Vec<String> = deps
+        .iter()
+        .filter_map(|x| x.pointer("/digest/gitCommit").and_then(Value::as_str))
+        .map(|x| x.to_ascii_lowercase())
+        .collect();
+    c.sort();
+    c.dedup();
+    if c.len() != 1 || c[0].len() != 40 {
+        return Err("Invalid source commit binding".into());
+    }
+    let b = v
+        .pointer("/predicate/runDetails/builder/id")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    if b.is_empty() {
+        return Err("No provenance builder".into());
+    }
+    Ok((c.remove(0), b))
+}
+fn verify_sbom(b: &[u8], p: &Value) -> Result<usize, String> {
+    let v: Value = serde_json::from_slice(b).map_err(|e| e.to_string())?;
+    if v.get("bomFormat").and_then(Value::as_str) != Some("CycloneDX") {
+        return Err("Invalid SBOM".into());
+    }
+    let c = v
+        .get("components")
+        .and_then(Value::as_array)
+        .ok_or("Empty SBOM")?;
+    if c.is_empty() {
+        return Err("SBOM lists no components".into());
+    }
+    let actual = sha256_hex(b);
+    let mut bound = false;
+    if let Some(items) = p
+        .pointer("/predicate/runDetails/byproducts")
+        .and_then(Value::as_array)
+    {
+        for i in items {
+            if i.get("name").and_then(Value::as_str) == Some(SBOM_NAME) {
+                let expected = i
+                    .pointer("/digest/sha256")
+                    .and_then(Value::as_str)
+                    .ok_or("SBOM provenance has no digest")?;
+                if !expected.eq_ignore_ascii_case(&actual) {
+                    return Err("SBOM provenance mismatch".into());
+                }
+                bound = true;
+            }
+        }
+    }
+    if !bound {
+        if let Some(items) = p.get("subject").and_then(Value::as_array) {
+            for i in items {
+                if i.get("name").and_then(Value::as_str) == Some(SBOM_NAME) {
+                    let expected = i
+                        .pointer("/digest/sha256")
+                        .and_then(Value::as_str)
+                        .ok_or("SBOM subject has no digest")?;
+                    if !expected.eq_ignore_ascii_case(&actual) {
+                        return Err("SBOM provenance mismatch".into());
+                    }
+                    bound = true;
+                }
+            }
+        }
+    }
+    if !bound {
+        return Err("Provenance does not bind the SBOM".into());
+    }
+    Ok(c.len())
+}
+#[tauri::command]
+fn install_verified_node() -> Result<InstallResult, String> {
+    let c = http_client()?;
+    let r = get_latest_release(&c)?;
+    if !r.tag_name.ends_with("-testnet") {
+        return Err("Unexpected release channel".into());
+    }
+    let a = node_binary_name()?.to_string();
+    let sig = format!("{a}.sig");
+    let req = [
+        a.as_str(),
+        sig.as_str(),
+        "SHA256SUMS",
+        "SHA256SUMS.sig",
+        PROVENANCE_NAME,
+        "VIGICHAIN-PROVENANCE.json.sig",
+        SBOM_NAME,
+    ];
+    // Every artifact the policy requires must be present in the release BEFORE anything is
+    // downloaded — a package missing its provenance or its inventory is refused whole, not
+    // discovered halfway through an install. The URL is discarded here on purpose: this loop is
+    // the presence check, and the download loop below resolves them again.
+    for n in req {
+        asset_url(&r, n)?;
+    }
+    let h = vigi_home()?;
+    fs::create_dir_all(&h).map_err(|e| e.to_string())?;
+    let s = h.join(format!(".install-{}-{}", r.tag_name, std::process::id()));
+    if s.exists() {
+        fs::remove_dir_all(&s).map_err(|e| e.to_string())?
+    }
+    fs::create_dir(&s).map_err(|e| e.to_string())?;
+    let result = (|| {
+        for n in req {
+            download(&c, asset_url(&r, n)?, &s.join(n))?
+        }
+        let bin = fs::read(s.join(&a)).map_err(|e| e.to_string())?;
+        verify_signature(
+            &bin,
+            &fs::read_to_string(s.join(&sig)).map_err(|e| e.to_string())?,
+        )?;
+        let sums = fs::read(s.join("SHA256SUMS")).map_err(|e| e.to_string())?;
+        verify_signature(
+            &sums,
+            &fs::read_to_string(s.join("SHA256SUMS.sig")).map_err(|e| e.to_string())?,
+        )?;
+        let prov = fs::read(s.join(PROVENANCE_NAME)).map_err(|e| e.to_string())?;
+        verify_signature(
+            &prov,
+            &fs::read_to_string(s.join("VIGICHAIN-PROVENANCE.json.sig"))
+                .map_err(|e| e.to_string())?,
+        )?;
+        let d = sha256_hex(&bin);
+        verify_manifest(
+            &String::from_utf8(sums).map_err(|_| "Manifest encoding")?,
+            &a,
+            &d,
+        )?;
+        let pv: Value = serde_json::from_slice(&prov).map_err(|e| e.to_string())?;
+        let (commit, builder) = parse_provenance(&pv, &a, &d, &r.tag_name)?;
+        let sb = fs::read(s.join(SBOM_NAME)).map_err(|e| e.to_string())?;
+        let count = verify_sbom(&sb, &pv)?;
+        let dest = h.join(&a);
+        let pending = h.join(format!(".{a}.verified"));
+        fs::write(&pending, &bin).map_err(|e| e.to_string())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&pending, fs::Permissions::from_mode(0o700))
+                .map_err(|e| e.to_string())?
+        }
+        if dest.exists() {
+            fs::remove_file(&dest).map_err(|e| e.to_string())?
+        }
+        fs::rename(&pending, &dest).map_err(|e| e.to_string())?;
+        Ok(InstallResult {
+            tag: r.tag_name.clone(),
+            artifact: a.clone(),
+            sha256: d,
+            source_commit: commit,
+            builder,
+            sbom_components: count,
+            installed_path: dest.display().to_string(),
+            verified: true,
+        })
+    })();
+    let _ = fs::remove_dir_all(&s);
+    result
+}
+#[tauri::command]
+fn system_info() -> SystemInfo {
+    let n = std::thread::available_parallelism()
+        .map(|x| x.get())
+        .unwrap_or(1);
+    let b = node_binary_path().ok();
+    let (level, detail) = sandbox::capability();
+    SystemInfo {
+        logical_cpus: n,
+        architecture: std::env::consts::ARCH.into(),
+        operating_system: std::env::consts::OS.into(),
+        node_binary_available: b.is_some(),
+        node_binary_path: b.map(|p| p.display().to_string()),
+        containment_level: level.into(),
+        containment_detail: detail.into(),
+    }
+}
+#[tauri::command]
+fn compact_stats(mode: String) -> Result<compact::CompactStats, String> {
+    compact::stats(&vigi_home()?, &mode)
+}
+#[tauri::command]
+fn compact_now(mode: String) -> Result<compact::CompactRunResult, String> {
+    if !matches!(mode.as_str(), "automatic" | "maximum") {
+        return Err("Compact mode must be automatic or maximum".into());
+    }
+    compact::compact_now(&vigi_home()?, &mode)
+}
+#[tauri::command]
+fn compact_restore_all() -> Result<compact::RestoreResult, String> {
+    compact::restore_all(&vigi_home()?)
+}
+#[tauri::command]
+fn compact_advice() -> Result<storage_advisor::StorageAdvice, String> {
+    let home = vigi_home()?;
+    let stats = compact::stats(&home, "automatic")?;
+    storage_advisor::advise(&home, stats.source_bytes.max(stats.stored_bytes))
+}
+#[tauri::command]
+fn telemetry_snapshot() -> Result<telemetry::TelemetryState, String> {
+    telemetry::snapshot()
+}
+#[tauri::command]
+fn start_mining(
+    config: MinerConfig,
+    process: State<'_, MinerProcess>,
+) -> Result<NodeStatus, String> {
+    if config.network == "mainnet" {
+        return Err("Mainnet remains locked while Core reports MAINNET_LAUNCHED=false".into());
+    }
+    if config.network != "testnet" || !config.address.starts_with("tvigi1") {
+        return Err("Invalid Testnet configuration".into());
+    }
+    if !config.sandboxed {
+        return Err("Vigi Miner refuses unsandboxed execution".into());
+    }
+    if !(10..=100).contains(&config.cpu_limit_percent) || config.threads == 0 {
+        return Err("Invalid compute limit".into());
+    }
+    if !matches!(
+        config.power_profile.as_str(),
+        "eco" | "balanced" | "performance" | "custom"
+    ) {
+        return Err("Unknown power profile".into());
+    }
+    let available = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
+    if usize::from(config.threads) > available {
+        return Err("Requested threads exceed available CPU".into());
+    }
+    let mut g = process
+        .inner()
+        .0
+        .lock()
+        .map_err(|_| "Miner process lock poisoned")?;
+    if let Some(r) = g.as_mut() {
+        if r.child.try_wait().map_err(|e| e.to_string())?.is_none() {
+            return Ok(NodeStatus {
+                running: true,
+                pid: Some(r.child.id()),
+                binary_available: true,
+            });
+        }
+        *g = None
+    }
+    let paths = sandbox::prepare("testnet")?;
+    let mut cmd = Command::new(node_binary_path()?);
+    sandbox::apply_baseline(&mut cmd, &paths);
+    cmd.env("VIGI_NETWORK", "testnet")
+        .env("VIGI_ENABLE_MINING", "true")
+        .env("VIGI_MINING_THREADS", config.threads.to_string())
+        .env("VIGI_MINER_ADDRESS", config.address)
+        .env("VIGI_BOOTNODES", config.bootnodes)
+        .env("VIGI_POWER_PROFILE", config.power_profile)
+        .env(
+            "VIGI_CPU_LIMIT_PERCENT",
+            config.cpu_limit_percent.to_string(),
+        )
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    node_log_clear();
+    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+    // Drained on their own threads: a pipe nobody reads fills, and a node whose stdout is full
+    // stops — which would turn a diagnostic into an outage.
+    for stream in [
+        child.stdout.take().map(StdStream::Out),
+        child.stderr.take().map(StdStream::Err),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        std::thread::spawn(move || {
+            let reader: Box<dyn std::io::Read + Send> = match stream {
+                StdStream::Out(o) => Box::new(o),
+                StdStream::Err(e) => Box::new(e),
+            };
+            for line in std::io::BufReader::new(reader).lines().map_while(Result::ok) {
+                node_log_push(line);
+            }
+        });
+    }
+    let containment =
+        match process_containment::ProcessContainment::attach(&child, config.cpu_limit_percent) {
+            Ok(c) => c,
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!(
+                    "Vigi Miner refused to continue without OS containment: {e}"
+                ));
+            }
+        };
+    let pid = child.id();
+    *g = Some(RunningMiner {
+        child,
+        _containment: containment,
+    });
+    Ok(NodeStatus {
+        running: true,
+        pid: Some(pid),
+        binary_available: true,
+    })
+}
+#[tauri::command]
+fn stop_mining(process: State<'_, MinerProcess>) -> Result<NodeStatus, String> {
+    let mut g = process
+        .inner()
+        .0
+        .lock()
+        .map_err(|_| "Miner process lock poisoned")?;
+    if let Some(mut r) = g.take() {
+        r.child.kill().map_err(|e| e.to_string())?;
+        let _ = r.child.wait();
+    }
+    Ok(NodeStatus {
+        running: false,
+        pid: None,
+        binary_available: node_binary_path().is_ok(),
+    })
+}
+#[tauri::command]
+fn miner_status(process: State<'_, MinerProcess>) -> Result<NodeStatus, String> {
+    let a = node_binary_path().is_ok();
+    let mut g = process
+        .inner()
+        .0
+        .lock()
+        .map_err(|_| "Miner process lock poisoned")?;
+    if let Some(r) = g.as_mut() {
+        if r.child.try_wait().map_err(|e| e.to_string())?.is_none() {
+            return Ok(NodeStatus {
+                running: true,
+                pid: Some(r.child.id()),
+                binary_available: a,
+            });
+        }
+        *g = None
+    }
+    Ok(NodeStatus {
+        running: false,
+        pid: None,
+        binary_available: a,
+    })
+}
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .manage(MinerProcess(Mutex::new(None)))
+        .invoke_handler(tauri::generate_handler![
+            start_mining,
+            stop_mining,
+            miner_status,
+            system_info,
+            install_verified_node,
+            hardware::discover_mining_hardware,
+            compact_stats,
+            compact_now,
+            compact_restore_all,
+            compact_advice,
+            telemetry_snapshot,
+            node_log
+        ])
+        // The webview keeps its zoom factor between sessions, and a factor that is not 1.0 is
+        // indistinguishable from a broken layout: at 1.2 the interface is simply wider than the
+        // window that holds it, and the right-hand column of readings leaves the screen. An
+        // instrument panel opens at its own scale, so the zoom is set explicitly on start-up
+        // instead of inheriting whatever a stray Ctrl+wheel left behind.
+        .setup(|app| {
+            use tauri::Manager;
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_zoom(1.0);
+            }
+            Ok(())
+        })
+        .run(tauri::generate_context!())
+        .expect("error while running Vigi Miner")
+}

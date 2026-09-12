@@ -1,0 +1,30 @@
+[package]
+name = "vigi-miner"
+version = "0.3.0"
+description = "VigiChain desktop miner, node and compact storage control surface"
+authors = ["VigiChain"]
+edition = "2021"
+
+[lib]
+name = "vigi_miner_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+sha2 = "0.10"
+minisign-verify = "0.2.5"
+local-ip-address = "0.6"
+zstd = "0.13"
+fs2 = "0.4"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security"] }

@@ -1,0 +1,72 @@
+name: Vigi Miner portable builds
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/vigi-miner-desktop]
+    paths:
+      - 'apps/vigi-miner/**'
+      - '.github/workflows/vigi-miner-build.yml'
+  pull_request:
+    paths:
+      - 'apps/vigi-miner/**'
+      - '.github/workflows/vigi-miner-build.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  portable:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: vigi-miner-linux-x86_64
+            binary: apps/vigi-miner/src-tauri/target/release/vigi-miner
+          - os: windows-latest
+            artifact: vigi-miner-windows-x86_64
+            binary: apps/vigi-miner/src-tauri/target/release/vigi-miner.exe
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: apps/vigi-miner
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: Install frontend dependencies
+        run: npm install --no-audit --no-fund
+      - name: Build portable desktop executable
+        run: npm run tauri -- build --no-bundle
+      - name: Upload unsigned test executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.binary }}
+          if-no-files-found: error
+          retention-days: 7
+
+      # The portable executable is what a developer runs; an installer is what a person
+      # double-clicks. Building it needs the icon set that `build.rs` now generates — before this,
+      # the bundler had a single .ico and nothing else, which is why only `--no-bundle` was ever
+      # attempted here.
+      - name: Build installers
+        run: npm run tauri -- build
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-installers
+          path: |
+            apps/vigi-miner/src-tauri/target/release/bundle/**/*.msi
+            apps/vigi-miner/src-tauri/target/release/bundle/**/*.exe
+            apps/vigi-miner/src-tauri/target/release/bundle/**/*.deb
+            apps/vigi-miner/src-tauri/target/release/bundle/**/*.rpm
+            apps/vigi-miner/src-tauri/target/release/bundle/**/*.AppImage
+          if-no-files-found: error
+          retention-days: 7
